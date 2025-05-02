@@ -1,0 +1,3 @@
+C:/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-windows/CMakeFiles/attendanceServer.dir
+C:/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-windows/CMakeFiles/edit_cache.dir
+C:/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-windows/CMakeFiles/rebuild_cache.dir

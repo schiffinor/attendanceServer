@@ -15,6 +15,14 @@ set(CMAKE_CXX_STANDARD       20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS     OFF)
 
+# static libgcc, libstdc++
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
+endif()
+if (WIN32)
+    set(CMAKE_EXE_LINKER_FLAGS "-static")
+endif()
+
 # Discourage in-source builds
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(WARNING "In-source builds discouraged; please use a separate build directory.")
@@ -31,11 +39,22 @@ find_package(OpenBLAS REQUIRED)
 
 
 
-# 4) your executable
-add_executable(attendanceServer
-        main.cpp
-        # …other sources…
+
+# 1. glob all .cpp under the source directory
+file(GLOB_RECURSE
+        ATTENDANCE_SOURCES
+        CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
+
+# 2. remove any file whose path contains the build dir
+list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "cmake-build-")
+
+add_executable(attendanceServer
+        ${ATTENDANCE_SOURCES}
+)
+
+
 
 
 target_link_libraries(attendanceServer
