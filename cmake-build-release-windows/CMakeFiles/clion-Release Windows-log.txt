@@ -1,0 +1,128 @@
+"C:\Program Files\JetBrains\CLion 2024.3\bin\cmake\win\x64\bin\cmake.exe" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_MAKE_PROGRAM=C:/Program Files/JetBrains/CLion 2024.3/bin/ninja/win/x64/ninja.exe" -DCMAKE_TOOLCHAIN_FILE=C:/Users/schif/Documents/Coding/attendanceServer/cmake/toolchains/win.cmake -G Ninja -S C:\Users\schif\Documents\Coding\attendanceServer -B C:\Users\schif\Documents\Coding\attendanceServer\cmake-build-release-windows
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1736 ] _boost_TEST_VERSIONS = "1.87.0;1.87;1.86.0;1.86;1.85.0;1.85;1.84.0;1.84;1.83.0;1.83;1.82.0;1.82;1.81.0;1.81;1.80.0;1.80;1.79.0;1.79;1.78.0;1.78;1.77.0;1.77;1.76.0;1.76;1.75.0;1.75;1.74.0;1.74;1.73.0;1.73;1.72.0;1.72;1.71.0;1.71;1.70.0;1.70;1.69.0;1.69;1.68.0;1.68;1.67.0;1.67;1.66.0;1.66;1.65.1;1.65.0;1.65;1.64.0;1.64;1.63.0;1.63;1.62.0;1.62;1.61.0;1.61;1.60.0;1.60;1.59.0;1.59;1.58.0;1.58;1.57.0;1.57;1.56.0;1.56;1.55.0;1.55;1.54.0;1.54;1.53.0;1.53;1.52.0;1.52;1.51.0;1.51;1.50.0;1.50;1.49.0;1.49;1.48.0;1.48;1.47.0;1.47;1.46.1;1.46.0;1.46;1.45.0;1.45;1.44.0;1.44;1.43.0;1.43;1.42.0;1.42;1.41.0;1.41;1.40.0;1.40;1.39.0;1.39;1.38.0;1.38;1.37.0;1.37;1.36.1;1.36.0;1.36;1.35.1;1.35.0;1.35;1.34.1;1.34.0;1.34;1.33.1;1.33.0;1.33"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1737 ] Boost_USE_MULTITHREADED = "TRUE"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1738 ] Boost_USE_STATIC_LIBS = "ON"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1739 ] Boost_USE_STATIC_RUNTIME = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1740 ] Boost_ADDITIONAL_VERSIONS = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1741 ] Boost_NO_SYSTEM_PATHS = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1773 ] BOOST_ROOT = "C:/Program Files/boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1774 ] ENV{BOOST_ROOT} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1775 ] BOOST_INCLUDEDIR = "C:/Program Files/boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1776 ] ENV{BOOST_INCLUDEDIR} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1777 ] BOOST_LIBRARYDIR = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1778 ] ENV{BOOST_LIBRARYDIR} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1866 ] location of version.hpp: C:/Program Files/boost/boost/version.hpp
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1906 ] Boost_VERSION = "1.88.0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1907 ] Boost_VERSION_STRING = "1.88.0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1908 ] Boost_VERSION_MACRO = "108800"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1909 ] Boost_VERSION_MAJOR = "1"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1910 ] Boost_VERSION_MINOR = "88"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1911 ] Boost_VERSION_PATCH = "0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1912 ] Boost_VERSION_COUNT = "3"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1936 ] Boost_LIB_PREFIX = "lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1937 ] Boost_NAMESPACE = "boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1959 ] _boost_COMPILER = "-mgw8" (user-specified via Boost_COMPILER)
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1973 ] _boost_MULTITHREADED = "-mt"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2025 ] _boost_ARCHITECTURE_TAG = "-x64" (user-specified via Boost_ARCHITECTURE)
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2055 ] _boost_RELEASE_ABI_TAG = "-"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2056 ] _boost_DEBUG_ABI_TAG = "-d"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2116 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2117 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+CMake Warning at C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1428 (message):
+  New Boost version may have incorrect or missing dependencies and imported
+  targets
+Call Stack (most recent call first):
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1553 (_Boost_COMPONENT_DEPENDENCIES)
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2165 (_Boost_MISSING_DEPENDENCIES)
+  cmake/toolchains/win.cmake:24 (find_package)
+  cmake-build-release-windows/CMakeFiles/3.31.6/CMakeSystem.cmake:6 (include)
+  CMakeLists.txt:8 (project)
+
+
+CMake Warning at C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1428 (message):
+  New Boost version may have incorrect or missing dependencies and imported
+  targets
+Call Stack (most recent call first):
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1553 (_Boost_COMPONENT_DEPENDENCIES)
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2165 (_Boost_MISSING_DEPENDENCIES)
+  cmake/toolchains/win.cmake:24 (find_package)
+  cmake-build-release-windows/CMakeFiles/3.31.6/CMakeSystem.cmake:6 (include)
+  CMakeLists.txt:8 (project)
+
+
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2302 ] Searching for SYSTEM_LIBRARY_RELEASE: libboost_system-mgw8-mt-x64-1_88;libboost_system-mgw8-mt-x64;libboost_system-mgw8-mt;libboost_system-mt-x64-1_88;libboost_system-mt-x64;libboost_system-mt;libboost_system-mt;libboost_system;libboost_system-mgw8-mt-s-x64-1_88;libboost_system-mgw8-mt-s-x64;libboost_system-mgw8-mt-s;libboost_system-mt-s-x64-1_88;libboost_system-mt-s-x64;libboost_system-mt-s
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_RELEASE = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2357 ] Searching for SYSTEM_LIBRARY_DEBUG: libboost_system-mgw8-mt-d-x64-1_88;libboost_system-mgw8-mt-d-x64;libboost_system-mgw8-mt-d;libboost_system-mt-d-x64-1_88;libboost_system-mt-d-x64;libboost_system-mt-d;libboost_system-mt;libboost_system;libboost_system-mgw8-mt-s-d-x64-1_88;libboost_system-mgw8-mt-s-d-x64;libboost_system-mgw8-mt-s-d;libboost_system-mt-s-d-x64-1_88;libboost_system-mt-s-d-x64;libboost_system-mt-s-d
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_DEBUG = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2302 ] Searching for REGEX_LIBRARY_RELEASE: libboost_regex-mgw8-mt-x64-1_88;libboost_regex-mgw8-mt-x64;libboost_regex-mgw8-mt;libboost_regex-mt-x64-1_88;libboost_regex-mt-x64;libboost_regex-mt;libboost_regex-mt;libboost_regex;libboost_regex-mgw8-mt-s-x64-1_88;libboost_regex-mgw8-mt-s-x64;libboost_regex-mgw8-mt-s;libboost_regex-mt-s-x64-1_88;libboost_regex-mt-s-x64;libboost_regex-mt-s
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_RELEASE = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2357 ] Searching for REGEX_LIBRARY_DEBUG: libboost_regex-mgw8-mt-d-x64-1_88;libboost_regex-mgw8-mt-d-x64;libboost_regex-mgw8-mt-d;libboost_regex-mt-d-x64-1_88;libboost_regex-mt-d-x64;libboost_regex-mt-d;libboost_regex-mt;libboost_regex;libboost_regex-mgw8-mt-s-d-x64-1_88;libboost_regex-mgw8-mt-s-d-x64;libboost_regex-mgw8-mt-s-d;libboost_regex-mt-s-d-x64-1_88;libboost_regex-mt-s-d-x64;libboost_regex-mt-s-d
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_DEBUG = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- Found Boost: C:/Program Files/boost (found version "1.88.0") found components: system regex
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1736 ] _boost_TEST_VERSIONS = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1737 ] Boost_USE_MULTITHREADED = "TRUE"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1738 ] Boost_USE_STATIC_LIBS = "ON"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1739 ] Boost_USE_STATIC_RUNTIME = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1740 ] Boost_ADDITIONAL_VERSIONS = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1741 ] Boost_NO_SYSTEM_PATHS = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1773 ] BOOST_ROOT = "C:/Program Files/boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1774 ] ENV{BOOST_ROOT} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1775 ] BOOST_INCLUDEDIR = "C:/Program Files/boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1776 ] ENV{BOOST_INCLUDEDIR} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1777 ] BOOST_LIBRARYDIR = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1778 ] ENV{BOOST_LIBRARYDIR} = <unset>
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1866 ] location of version.hpp: C:/Program Files/boost/boost/version.hpp
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1906 ] Boost_VERSION = "1.88.0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1907 ] Boost_VERSION_STRING = "1.88.0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1908 ] Boost_VERSION_MACRO = "108800"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1909 ] Boost_VERSION_MAJOR = "1"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1910 ] Boost_VERSION_MINOR = "88"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1911 ] Boost_VERSION_PATCH = "0"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1912 ] Boost_VERSION_COUNT = "3"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1936 ] Boost_LIB_PREFIX = "lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1937 ] Boost_NAMESPACE = "boost"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1959 ] _boost_COMPILER = "-mgw8" (user-specified via Boost_COMPILER)
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1973 ] _boost_MULTITHREADED = "-mt"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2025 ] _boost_ARCHITECTURE_TAG = "-x64" (user-specified via Boost_ARCHITECTURE)
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2055 ] _boost_RELEASE_ABI_TAG = "-"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2056 ] _boost_DEBUG_ABI_TAG = "-d"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2116 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2117 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+CMake Warning at C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1428 (message):
+  New Boost version may have incorrect or missing dependencies and imported
+  targets
+Call Stack (most recent call first):
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1553 (_Boost_COMPONENT_DEPENDENCIES)
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2165 (_Boost_MISSING_DEPENDENCIES)
+  CMakeLists.txt:27 (find_package)
+
+
+CMake Warning at C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1428 (message):
+  New Boost version may have incorrect or missing dependencies and imported
+  targets
+Call Stack (most recent call first):
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:1553 (_Boost_COMPONENT_DEPENDENCIES)
+  C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2165 (_Boost_MISSING_DEPENDENCIES)
+  CMakeLists.txt:27 (find_package)
+
+
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2302 ] Searching for REGEX_LIBRARY_RELEASE: libboost_regex-mgw8-mt-x64-1_88;libboost_regex-mgw8-mt-x64;libboost_regex-mgw8-mt;libboost_regex-mt-x64-1_88;libboost_regex-mt-x64;libboost_regex-mt;libboost_regex-mt;libboost_regex;libboost_regex-mgw8-mt-s-x64-1_88;libboost_regex-mgw8-mt-s-x64;libboost_regex-mgw8-mt-s;libboost_regex-mt-s-x64-1_88;libboost_regex-mt-s-x64;libboost_regex-mt-s
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_RELEASE = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2357 ] Searching for REGEX_LIBRARY_DEBUG: libboost_regex-mgw8-mt-d-x64-1_88;libboost_regex-mgw8-mt-d-x64;libboost_regex-mgw8-mt-d;libboost_regex-mt-d-x64-1_88;libboost_regex-mt-d-x64;libboost_regex-mt-d;libboost_regex-mt;libboost_regex;libboost_regex-mgw8-mt-s-d-x64-1_88;libboost_regex-mgw8-mt-s-d-x64;libboost_regex-mgw8-mt-s-d;libboost_regex-mt-s-d-x64-1_88;libboost_regex-mt-s-d-x64;libboost_regex-mt-s-d
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_DEBUG = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2302 ] Searching for SYSTEM_LIBRARY_RELEASE: libboost_system-mgw8-mt-x64-1_88;libboost_system-mgw8-mt-x64;libboost_system-mgw8-mt;libboost_system-mt-x64-1_88;libboost_system-mt-x64;libboost_system-mt;libboost_system-mt;libboost_system;libboost_system-mgw8-mt-s-x64-1_88;libboost_system-mgw8-mt-s-x64;libboost_system-mgw8-mt-s;libboost_system-mt-s-x64-1_88;libboost_system-mt-s-x64;libboost_system-mt-s
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_RELEASE = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_RELEASE = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:2357 ] Searching for SYSTEM_LIBRARY_DEBUG: libboost_system-mgw8-mt-d-x64-1_88;libboost_system-mgw8-mt-d-x64;libboost_system-mgw8-mt-d;libboost_system-mt-d-x64-1_88;libboost_system-mt-d-x64;libboost_system-mt-d;libboost_system-mt;libboost_system;libboost_system-mgw8-mt-s-d-x64-1_88;libboost_system-mgw8-mt-s-d-x64;libboost_system-mgw8-mt-s-d;libboost_system-mt-s-d-x64-1_88;libboost_system-mt-s-d-x64;libboost_system-mt-s-d
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:823 ] Boost_LIBRARY_DIR_DEBUG = "C:/Program Files/boost/stage/lib"
+-- [ C:/Program Files/JetBrains/CLion 2024.3/bin/cmake/win/x64/share/cmake-3.31/Modules/FindBoost.cmake:825 ] _boost_LIBRARY_SEARCH_DIRS_DEBUG = "C:/Program Files/boost/stage/lib;NO_DEFAULT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+-- Found Boost: C:/Program Files/boost (found suitable version "1.88.0", minimum required is "1.88.0") found components: regex system
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-windows

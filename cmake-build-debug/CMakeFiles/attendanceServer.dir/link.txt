@@ -1,0 +1,1 @@
+/usr/bin/g++ -g -Wl,--dependency-file=CMakeFiles/attendanceServer.dir/link.d CMakeFiles/attendanceServer.dir/main.cpp.o -o attendanceServer  -Wl,-rpath,/opt/OpenBLAS/lib /usr/lib/libboost_regex.so.1.88.0 /usr/lib/libboost_system.so.1.88.0 /opt/OpenBLAS/lib/libopenblas.so
