@@ -1,3 +1,0 @@
-/mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-wsl/CMakeFiles/attendanceServer.dir
-/mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-wsl/CMakeFiles/edit_cache.dir
-/mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-wsl/CMakeFiles/rebuild_cache.dir

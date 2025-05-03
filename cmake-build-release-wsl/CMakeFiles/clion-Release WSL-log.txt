@@ -1,4 +1,0 @@
-/opt/cmake-3.31.7-linux-x86_64/bin/cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake/toolchains/wsl.cmake -G "Unix Makefiles" -S /mnt/c/Users/schif/Documents/Coding/attendanceServer -B /mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-wsl
--- Configuring done (0.1s)
--- Generating done (0.1s)
--- Build files have been written to: /mnt/c/Users/schif/Documents/Coding/attendanceServer/cmake-build-release-wsl
