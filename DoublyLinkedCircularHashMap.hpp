@@ -1,6 +1,188 @@
-//
-// Created by schif on 4/21/2025.
-//
+/**
+ * @file    DoublyLinkedCircularHashMap.hpp
+ * @author  Román Schiffino  (schiffinor)
+ * @email   schiffinoroman@gmail.com
+ * @version 1.0  ––– first *full* release of my first C++ project.
+ * @brief   “Hash‑map meets doubly‑linked list, they move in together, adopt
+ *          cache‑friendly nodes and live happily ever after.”
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ *  👋 Hi!  Román here.  I’m still learning modern C++ (prior to this the most
+ *  I had written was a projectile motion calculator and a helper function for
+ *  calculating pairwise minkowski distances in python a la scipy cdist) – so I
+ *  decided to throw myself into the deep-end by creating a STL-like mash up a
+ *  hash‑table, a circular doubly‑linked list with as many bells and whistles as
+ *  I could think of.  That Frankenstein is the **DoublyLinkedCircularHashMap**
+ *  you are reading.
+ *
+ *  Why bother?
+ *  ───────────
+ *  • **O(1)** average insert / erase / contains thanks to the hash table.
+ *  • **Stable insertion order** thanks to the circular list – perfect for LRU
+ *    caches, task queues, “remember the order I gave you!” situations, etc.
+ *  • **Bidirectional iterators**: walk it like a list, still find like a map.
+ *  • **Allocator‑aware**: pass your own allocator (I even wrote a counting
+ *    one in the tests).
+ *  • **Cache‑aware**: every `Node` is aligned to a cache‑line boundary
+ *    (64 bytes – or `std::hardware_destructive_interference_size` if the
+ *    compiler knows it), so traversals prefetch nicely.
+ *  • **Heterogeneous lookup** à la <unordered_map> – pass `std::string_view`
+ *    to a `std::string` map, etc.
+ *  • A metric ton of “extra” features: positional swaps, rotation, split/
+ *    splice, stack/queue helpers, bucket histograms, integrity validator…
+ *
+ *  An ode to `find_n_nodes`
+ *  ───────────────────────────────
+ *  The proudest algorithm in here is `find_n_nodes`, a bulk‑lookup that digs
+ *  up *M* arbitrary positions from our *N*‑element list using a greedy zig‑zag
+ *  walk from both ends.  Instead of naively walking *O(M·N)* nodes, it touches
+ *  at most
+ *
+ *      (M / (M + 1)) · (N – 1)
+ *
+ *  nodes – so if you only ask for a handful (M ≪ N) you pay almost nothing,
+ *  and even the worst case (M≈N) degrades gracefully to a single full pass.
+ *  There’s optional profiling output to prove it, and the benchmark in
+ *  `main.cpp` (see `testFindNNodesPerformance`) times it so you can watch the
+ *  bound in action.  Internally it:
+ *
+ *    1. Normalises every requested index modulo *N* (negatives welcome).
+ *    2. Sorts & dedupes (unless you insist on duplicates).
+ *    3. Maintains two cursors – one from `head_`, one from `tail_` – and always
+ *       walks the cheaper side next, alternately stealing from the left and
+ *       right demand queues (the “zig‑zag”).
+ *    4. Records the total distance walked so we can shout “Told you so!” in
+ *       the profiler.
+ *
+ *  The result comes back as the same container type you passed in, just
+ *  re‑bound to `Node*` – a neat template trick so vectors stay vectors, sets
+ *  stay sets, and so on.
+ *
+ *  Quick‑start cheat‑sheet
+ *  ───────────────────────
+ *  ```cpp
+ *  DoublyLinkedCircularHashMap<std::string,int> m;
+ *  m.insert("one", 1);          // append
+ *  m.insert_at("zero", 0, 0);   // prepend
+ *  m["two"] = 2;                // operator[] inserts default if absent
+ *
+ *  for (auto& [k,v] : m) { … }  // prints zero, one, two
+ *
+ *  // Bulk lookup: give me nodes 0 and ‑1 (front & back)
+ *  auto nodes = m.find_n_nodes(std::vector<int>{0, -1});
+ *  std::cout << nodes[0]->key_ << ", "<< nodes[1]->key_ << '\n';
+ *  ```
+ *
+ *  Pro‑tips / gotchas
+ *  ──────────────────
+ *  • The container is **circular**: `head_->prev_ == tail_` and vice‑versa.
+ *    Never compare to `nullptr` when you chase `next_`/`prev_` – use the list’s
+ *    end iterator if you need a sentinel.
+ *  • `erase()` is iterator‑friendly and returns the next iterator, but the
+ *    raw `Node*` you get from other helpers becomes *invalid* after any
+ *    structural change.  Be smart.
+ *  • Hit `validate()` in debug builds if you suspect mis‑wiring; it walks the
+ *    list & buckets and throws on anything fishy.
+ *  • Custom allocators must satisfy the usual STL rules (rebind, etc.).  My
+ *    counting allocator in the unit‑tests is a minimal example.
+ *
+ *  Roadmap / TODO
+ *  ──────────────────────────────────────────────
+ *  • Strong exception‑safety for *every* mutator (most already are).
+ *  • Transparent node recycling pool for constant‑time erase/insert without
+ *    visiting `operator new`.
+ *
+ *  License
+ *  ───────
+ *  Beer‑ware: If we ever meet and idrk, I don't imagine people really using this,
+ *  but in the rare occasion where not only do you value this, but that you want
+ *  to thank me in some way, and we meet, buy me a beer or something.
+ *  Otherwise use it however you like.
+ *
+ *  Thanks for checking out my code!  –Román
+ *
+ *  ─────────────────────────────────────────────────────────────────────────────
+ *  A small note on the code:
+ *  I am quite passionate about optimization, performance, efficiency, and generality.
+ *  I have a degree in mathematics and although I have been coding for a long time
+ *  and have had my small share of CS classes, I am not a CS major. I never dealt with
+ *  C or C++ in school, everything I learned was self-taught. I referenced Schildt's
+ *  C++ A Beginner's Guide, Filipek's C++ 17 In Detail, and the C++ standard library
+ *  references. I also referenced a lot of the STL code. In any case once again I
+ *  am NOT a CS major, I don't know if everything I did is "correct" or "best practice"
+ *  I know how computers work and I have a good head for code, but some of the things
+ *  like the cache line size and the alignment stuff I just did because I thought I
+ *  could eke out a bit more performance. I know what it does, but I don't know if
+ *  I did it right or if it is the best way to do it. I also don't know if it is
+ *  the best way to do it in C++. Also, I have two toolchains set-up, one for
+ *  WSL and one for Windows. I used WSL for most of the development, but this file
+ *  is part of a larger project that I am working on that will be for Windows, so I
+ *  hope everything works well. I use a rather customized Windows 11 environment,
+ *  on a very beefy workstation. All I know is that this works on my machine and
+ *  that the algorithms are mathematically sound. Please let me know if you
+ *  have any questions or if you find any bugs. I am always looking to improve
+ *  and learn more about C++ and programming in general. I am also always looking
+ *  for ways to improve my code and make it better. SO PLEASE, if you have any
+ *  ideas, notes, or suggestions, please let me know.
+ *  ─────────────────────────────────────────────────────────────────────────────
+ *  P.S. <<
+ *  One little thing I would like to mention is that while I did write up this
+ *  code myself and I did come up with all these ideas and algorithms, myself,
+ *  aside from the basic CS stuff, and STL conventions, I did use ChatGPT in
+ *  _ main ways:
+ *  1. I am tremendously bad at writing documentation, so I asked it to help me
+ *  with a bunch of that stuff. I try to add my personal flair and I also
+ *  provided a strict template for it to use, but at the end of the day most of
+ *  it has been heavily written by AI.
+ *  2. I asked it to help me with the unit tests. Again, that's just really boring.
+ *  Pretty much all of the tests are written by AI, but I did write a few of them
+ *  and I did have to edit most of them to make them work.
+ *  3. I used it to have someone to talk my ideas through with. I would walk it
+ *  through my ideas and it would help me clarify them, or point out things I
+ *  was missing. Really it just helped me formalize my ideas a bit.
+ *  4. I used it to reformat some of the code. I've coded in a lot of languages
+ *  but Python is my bread and butter, I've been coding python since I was like 11.
+ *  I had no clue what this file "should've" looked like, so I asked it to help me
+ *  make it all nice and pretty, as well as to clean up some of the code. However,
+ *  this was often more trouble than it was worth as I would implement what I
+ *  thought was only a style change and then it would break the code. Like the
+ *  countless times it butchered my find_n_nodes function. Like it just really
+ *  couldn't understand the algorithm I came up with, because like while my algorithm
+ *  isn't exactly novel (the basic algorithm and research has existed for a long time,
+ *  I found out after developing it that its closely related to the
+ *  Linear Tape Scheduling Problem), it is a pretty unique implementation and application.
+ *  Thus it was really hard for it to understand what I was trying to do. So I had
+ *  to go line by line and fix the code while maintaining the style, because yeah,
+ *  it looked a lot prettier than what I had wrote. It is my algorithm though lol.
+ *  5. I used it to suggest features to implement. Basically, whenever I had just
+ *  finished a big feature, I would feed it my whole file and ask, "what features
+ *  should I implement next?" and it would give me a list of features to implement.
+ *  I would then do my best to implement each feature, doing my research and yeah.
+ *  6. I used it to come up with names for stupid helper functions and variables. I
+ *  had no idea what to call half of the stuff I was writing, in fact if you look at
+ *  the deprecated functions, you'll see what I mean. For example, if you look at
+ *  shift_idx_og you may lay eyes on some of my beautifully named variables.
+ *  At one point i legitimately had a block of variables named:
+ *   - ridx_mod_pnt_idx
+ *   - lidx_mod_pnt_idx
+ *   - _ridx_mod_pnt_idx
+ *   - _lidx_mod_pnt_idx
+ *   - etc...
+ *  It was pretty bad and hard to make sense of for anyone who wasn't me, so I
+ *  asked the AI to just make up some names.
+ *  7. Lat but not least, I used it in debugging to help me root through the walls
+ *  of errors and debug info I was getting. Realistically, it just helped to have
+ *  something parse through the text and help me find the root problems so I could then
+ *  research the problem and implement a fix.
+ *
+ *  Regardless, I am very proud of this code and I think it's great. At the end of the
+ *  day, I wrote this code and I am the one who came up with the ideas and algorithms. I
+ *  am pretty proud of this code, especially the find_n_nodes function.
+ *
+ *  So yeah, I hope you enjoy this code and I hope it helps you in your projects.
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+
 
 #ifndef DOUBLYLINKEDCIRCULARHASHMAP_HPP
 #define DOUBLYLINKEDCIRCULARHASHMAP_HPP
