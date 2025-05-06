@@ -7,7 +7,7 @@
  *          cache‑friendly nodes and live happily ever after.”
  *
  * ──────────────────────────────────────────────────────────────────────────────
- *  👋 Hi!  Román here.  I’m still learning modern C++ (prior to this the most
+ *  Hi!  Román here.  I’m still learning modern C++ (prior to this the most
  *  I had written was a projectile motion calculator and a helper function for
  *  calculating pairwise minkowski distances in python a la scipy cdist) – so I
  *  decided to throw myself into the deep-end by creating a STL-like mash up a
@@ -273,13 +273,7 @@ class DoublyLinkedCircularHashMap {
     struct Node;
     using node_allocator_t = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
     node_allocator_t alloc_;
-#include <new>   // for hardware_*_interference_size
-#if defined(__cpp_lib_hardware_interference_size)
-    struct alignas(std::hardware_destructive_interference_size) Node {
-#else
-    constexpr std::size_t CacheLineSize = 64;
-    struct alignas(CacheLineSize) Node {
-#endif
+    struct alignas(64) Node {
         Key key_; /**< The key for this node. Immutable after construction. */
         Value value_; /**< The value mapped to key_. Move-constructed for efficiency. */
         //----- Circular doubly-linked list pointers (maintain insertion order) -----
@@ -2517,7 +2511,6 @@ public:
      * @param in          Input container of raw indices.
      * @param pre_sorted  If true, skip sorting step.
      * @param verbose     If true, emit step-by-step debug prints.
-     * @param allow_dupes If true, retain duplicate indices; else skip duplicates.
      * @param profiling_info If true, emit profiling info.
      * @return Container of Node* corresponding to each requested index.
      */
@@ -2529,7 +2522,6 @@ public:
     auto find_n_nodes(const C &in,
                       const bool pre_sorted = false,
                       const bool verbose = false,
-                      const bool allow_dupes = false,
                       const bool profiling_info = false) {
         using S = std::make_signed_t<Index>;
         using AllocNodePtr = typename std::allocator_traits<AllocIndex>
@@ -2568,47 +2560,13 @@ public:
             throw std::logic_error("find_n_nodes: indices not sorted!");
 #endif
 
-        // Copy for duplicate handling
-        std::vector<S> copy_mod_idx = mod_idx;
-        std::vector<std::vector<S> > pos_mod_idx(in.size(), std::vector<S>(1));
-        S prev = static_cast<S>(-1);
-        size_t prev_idx = static_cast<size_t>(-1), dupe_adj = 0;
-
-        for (size_t i = 0; i < copy_mod_idx.size(); i++) {
-            S cur = copy_mod_idx[i];
-            if (cur == prev) {
-                if (allow_dupes) {
-                    pos_mod_idx[prev_idx].push_back(i);
-                } else {
-                    ++dupe_adj;
-                    if (verbose) {
-                        std::cout << "find_n_nodes: skipping duplicate " << cur << "\n";
-                    }
-                }
-                mod_idx.erase(mod_idx.begin() + i);
-            } else {
-                ++prev_idx;
-                pos_mod_idx[prev_idx].clear();
-                S fill_idx = i - (allow_dupes ? 0 : dupe_adj);
-                pos_mod_idx[prev_idx].push_back(fill_idx);
-            }
-            prev = cur;
-        }
-        pos_mod_idx.resize(prev_idx + 1);
-
-        if (verbose) {
-            std::cout << "find_n_nodes: unique mods = { ";
-            for (auto m: mod_idx) std::cout << m << ' ';
-            std::cout << "}\n";
-        }
-
         const std::size_t M = mod_idx.size();
         if (M == 0) {
             return OutContainer{}; // no requests remain
         }
 
         // 2c. Greedy zig-zag walk
-        Vec out(allow_dupes ? copy_mod_idx.size() : M);
+        Vec out(M);
         std::size_t l_cnt = 0, r_cnt = 0;
         S bnd_low = 0, bnd_high = tail_i;
         size_t left = 0, right = M - 1;
@@ -2644,11 +2602,8 @@ public:
                 ++r_cnt;
                 --right;
             }
+            out[pick_left ? left - 1 : right + 1] = cur;
 
-            // 2h. Fill output slots for this pick
-            for (auto pos: pos_mod_idx[pick_left ? left - 1 : right + 1]) {
-                out[pos] = cur;
-            }
         }
 
         if (profiling_info) {
@@ -2718,7 +2673,6 @@ public:
     auto find_n_nodes(const C &in,
                       bool pre_sorted = false,
                       bool verbose = false,
-                      bool allow_dupes = false,
                       bool profiling_info = false) {
         using Index = std::ranges::range_value_t<C>;
         using AllocIndex = typename C::allocator_type;
@@ -2727,7 +2681,7 @@ public:
             Index,
             get_template<std::remove_cvref_t<C> >::template apply,
             AllocIndex
-        >(in, pre_sorted, verbose, allow_dupes, profiling_info);
+        >(in, pre_sorted, verbose, profiling_info);
     }
 
 

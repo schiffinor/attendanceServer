@@ -596,11 +596,12 @@ void DLCHM_findNNodes_smokeTest() {
     // 2. request a batch of indices in unsorted order, incl. duplicates
     const std::vector wants{7, 2, 2, 9, -1, 0}; // -1 should wrap to 9
     const std::list wants2 = {7, 2, 2, 9, -1, 0};
+    const std::vector wants3{0, 2, 7, 9}; // unique keys
 
     // 3. call the template; C++17 CTAD deduces the container type
-    auto ptrs = dll.find_n_nodes(wants, false, true);
-    auto ptrs2 = dll.find_n_nodes(wants, false, true, true);
-    auto ptrs3 = dll.find_n_nodes(wants2, false, true, true);
+    auto ptrs = dll.find_n_nodes(wants3, true, true);
+    auto ptrs2 = dll.find_n_nodes(wants, false, true);
+    auto ptrs3 = dll.find_n_nodes(wants2, false, true);
 
     // 3.1 Print the results
     // print output container type:
@@ -810,11 +811,11 @@ void testFindNNodesPerformance() {
         }
 
         // warm-up
-        volatile auto dummy = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true, true);
+        volatile auto dummy = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true);
 
         // timed run
         auto t0 = steady_clock::now();
-        auto out = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true, true);
+        auto out = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true);
         auto t1 = steady_clock::now();
 
         // sanity check: we got back M pointers
