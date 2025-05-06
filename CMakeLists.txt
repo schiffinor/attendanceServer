@@ -51,8 +51,15 @@ file(GLOB_RECURSE
 list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "cmake-build-")
 
 add_executable(attendanceServer
-        ${ATTENDANCE_SOURCES}
+        # ${ATTENDANCE_SOURCES}
+        main.cpp
 )
+
+# tiny demo target
+add_executable(testUniqueErase testUniqueErase.cpp)
+set_target_properties(testUniqueErase PROPERTIES EXCLUDE_FROM_ALL YES)
+
+target_link_libraries(testUniqueErase PRIVATE)
 
 
 

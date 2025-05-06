@@ -3,6 +3,7 @@
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <boost/regex.hpp>
+#include <algorithm>
 
 #include <iostream>
 #include <string>
@@ -550,8 +551,145 @@ int cblas_test() {
     return 0;
 }
 
-int main() {
+void print(const std::vector<int>& v, std::string_view label)
+{
+    std::cout << label << " { ";
+    for (int x : v) std::cout << x << ' ';
+    std::cout << "}\n";
+}
+
+void testUniqueErase() {
+    // ----- 1. make a vector that contains duplicates -------------- //
+    std::vector<int> data { 7, 2, 9, 2, 7, 7, 4, 9, 1, 4 };
+
+    print(data, "raw      ");
+
+    // ----- 2. sort (needed because unique removes *consecutive* dups) //
+    std::ranges::sort(data);
+    print(data, "sorted   ");
+
+    // ----- 3. unique + erase idiom ---------------------------------- //
+    auto newEnd = std::unique(data.begin(), data.end());   // step A
+    data.erase(newEnd, data.end());                        // step B
+
+    print(data, "deduped  ");
+
+    // ----- 4. sanity check ------------------------------------------ //
+    const std::vector<int> expected { 1, 2, 4, 7, 9 };
+    if (data != expected)
+        std::cerr << "Error: dedup failed!\n";
+}
+
+// ---------------------------------------------------------------------------
+// Quick functional test of find_n_nodes()
+// ---------------------------------------------------------------------------
+void DLCHM_findNNodes_smokeTest()
+{
+    using Map  = DoublyLinkedCircularHashMap<int,std::string>;
+    Map dll;
+
+    // 1. build a list with 10 nodes (keys 0..9)
+    for (int k = 0; k < 10; ++k)
+        dll.insert(k, "v" + std::to_string(k));
+
+    // 2. request a batch of indices in unsorted order, incl. duplicates
+    const std::vector<int> wants { 7, 2, 2, 9, -1, 0 };   // -1 should wrap to 9
+    const std::list<int> wants2 = { 7, 2, 2, 9, -1, 0 };
+
+    // 3. call the template; C++17 CTAD deduces the container type
+    auto ptrs = dll.find_n_nodes(wants, false, true);
+    auto ptrs2 = dll.find_n_nodes(wants, false, true, true);
+    auto ptrs3 = dll.find_n_nodes(wants2, false, true, true);
+
+    // 3.1 Print the results
+    // print output container type:
+    std::cout << "find_n_nodes output container type: "
+              << typeid(ptrs).name() << '\n';
+    std::cout << "find_n_nodes output container type: "
+              << typeid(ptrs2).name() << '\n';
+    std::cout << "find_n_nodes output container type: "
+              << typeid(ptrs3).name() << '\n';
+
+    // print container size:
+    std::cout << "find_n_nodes size: " << ptrs.size() << '\n';
+    std::cout << "find_n_nodes size (unique): " << ptrs2.size() << '\n';
+    std::cout << "find_n_nodes size (unique, v_out = false): " << ptrs3.size() << '\n';
+
+    // print container contents:
+    std::cout << "find_n_nodes results:\n";
+    for (const auto *n : ptrs)
+        std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
+
+    std::cout << "find_n_nodes results (unique):\n";
+    for (const auto *n : ptrs2)
+        std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
+
+    std::cout << "find_n_nodes results (unique, v_out = false)\n";
+    for (const auto *n : ptrs3)
+        std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
+
+
+
+    // 4. verify we got unique nodes {0,2,7,9}
+    std::vector<int> gotKeys;
+    for (const auto *n : ptrs) gotKeys.push_back(n->key_);
+
+    std::vector<int> gotKeys2;
+    for (const auto *n : ptrs2) gotKeys2.push_back(n->key_);
+
+    std::list<int> gotKeys3;
+    for (const auto *n : ptrs3) gotKeys3.push_back(n->key_);
+
+
+    std::vector<int> expect {0,2,7,9};
+    if (gotKeys != expect)
+    {
+        std::cerr << "find_n_nodes smoke‑test FAILED\n";
+        std::cerr << " expected {0,2,7,9}, got { ";
+        for (int k : gotKeys) std::cerr << k << ' ';
+        std::cerr << "}\n";
+    }
+    std::cout << "find_n_nodes smoke‑test passed ✔\n";
+
+    std::vector<int> expect2 {0,2,2,7,9,9};
+    if (gotKeys2 != expect2)
+    {
+        std::cerr << "find_n_nodes 2 smoke‑test FAILED\n";
+        std::cerr << " expected {0,2,2,7,9,9}, got { ";
+        for (int k : gotKeys2) std::cerr << k << ' ';
+        std::cerr << "}\n";
+    }
+    std::cout << "find_n_nodes 2 smoke‑test passed ✔\n";
+
+    std::list<int> expect3 {0,2,2,7,9,9};
+    if (gotKeys3 != expect3)
+    {
+        std::cerr << "find_n_nodes 3 smoke‑test FAILED\n";
+        std::cerr << " expected {0,2,2,7,9,9}, got { ";
+        for (int k : gotKeys3) std::cerr << k << ' ';
+        std::cerr << "}\n";
+    }
+    std::cout << "find_n_nodes 3 smoke‑test passed ✔\n";
+
+}
+
+void test_zigzag() {
+    using Map  = DoublyLinkedCircularHashMap<int,std::string>;
+
+    for (int i = 0; i < 10; ++i) {
+        std::pair<int, int> p = Map::computeZigzagOffsetPair(i, 0, 0);
+        auto [left, right] = p;
+        std::cout << "computeZigzagOffsetPair(" << i << ") = "
+                  << "left: " << left << ", right: " << right << "\n";
+    }
+}
+
+int main(){
     //call the tests
+    std::cout << "=== Starting tests ===\n";
+    test_zigzag();
+    DLCHM_findNNodes_smokeTest();
+    testUniqueErase();
     doublyLinkedCHMTest();
     regex_test();
     cblas_test();
