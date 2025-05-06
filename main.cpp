@@ -4,8 +4,6 @@
 #include <boost/asio.hpp>
 #include <boost/regex.hpp>
 #include <algorithm>
-
-#include <iostream>
 #include <string>
 #include "DOUBLYLINKEDCIRCULARHASHMAP.hpp"
 #include <cassert>
@@ -21,7 +19,7 @@ int doublyLinkedCHMTest() {
     std::cout << "=== Initial map ===\n";
     for (int i = 0; i < 50; i++) {
         std::cout << "Key: " << i
-                  << ", Value: " << map[i] << "\n";
+                << ", Value: " << map[i] << "\n";
     }
 
     // 3) First orderedGet (stepping by 7, from head)
@@ -29,7 +27,7 @@ int doublyLinkedCHMTest() {
     for (size_t i = 0; i < map.size(); i++) {
         auto p = map.orderedGet(7 * i, nullptr, true);
         std::cout << "Index " << i
-                  << " -> Value: " << *p << "\n";
+                << " -> Value: " << *p << "\n";
     }
 
     // 4) Second orderedGet (stepping by 7, starting from a custom node)
@@ -37,9 +35,9 @@ int doublyLinkedCHMTest() {
     for (size_t i = 0; i < map.size(); i++) {
         // pick a “from” position at index 2*i
         auto from = map.orderedGetNode(2 * i, nullptr, false);
-        auto p    = map.orderedGet(7 * i, from, true);
+        auto p = map.orderedGet(7 * i, from, true);
         std::cout << "Index " << i
-                  << " -> Value: " << *p << "\n";
+                << " -> Value: " << *p << "\n";
     }
 
     // 5) Remove every 5th key
@@ -71,7 +69,7 @@ int doublyLinkedCHMTest() {
 
     // 8) Read-only iteration
     std::cout << "\n=== After mutation (const iteration) ===\n";
-    for (auto const& [k, v] : map) {
+    for (auto const &[k, v]: map) {
         std::cout << k << " -> " << v << "\n";
     }
 
@@ -123,8 +121,8 @@ int doublyLinkedCHMTest() {
 
     // Build two maps:
     DoublyLinkedCircularHashMap<int, int> a, b;
-    for(int i = 1; i <= 5; ++i) a.insert(i, i*10);  // a: 1,2,3,4,5
-    for(int i = 6; i <= 8; ++i) b.insert(i, i*10);  // b: 6,7,8
+    for (int i = 1; i <= 5; ++i) a.insert(i, i * 10); // a: 1,2,3,4,5
+    for (int i = 6; i <= 8; ++i) b.insert(i, i * 10); // b: 6,7,8
     std::cout << "Initial state of map a: ";
     for (const auto &k: a | std::views::keys) std::cout << k << " ";
     std::cout << "\n";
@@ -134,8 +132,8 @@ int doublyLinkedCHMTest() {
 
     // Splice out [2, 5) from 'a' (i.e. keys 2,3,4) into the front of 'b'
     auto first = a.find(2);
-    auto last  = a.find(5);      // half-open → does not include key 5
-    auto ret   = b.splice(b.begin(), a, first, last);
+    auto last = a.find(5); // half-open → does not include key 5
+    auto ret = b.splice(b.begin(), a, first, last);
     std::cout << "First in splice: " << (*first).first << "\n";
     std::cout << "Last in splice: " << (*last).first << "\n\n";
 
@@ -144,8 +142,8 @@ int doublyLinkedCHMTest() {
     //   b should be: [2,3,4,6,7,8]
     //   ret should == iterator to the element '2' in b
 
-    std::vector expectA = {1,5};
-    std::vector expectB = {2,3,4,6,7,8};
+    std::vector expectA = {1, 5};
+    std::vector expectB = {2, 3, 4, 6, 7, 8};
 
     // verify a
     {
@@ -189,15 +187,15 @@ int doublyLinkedCHMTest() {
     std::cout << "Original map:\n";
     for (int i = 0; i < 10; i++) {
         std::cout << "Key: " << i
-                  << ", Value: " << map3[i] << "\n";
+                << ", Value: " << map3[i] << "\n";
     }
     auto splitMap = map3.split(5);
     std::cout << "Split map (should be keys 5..9):\n";
-    for (auto const& [k, v] : splitMap) {
+    for (auto const &[k, v]: splitMap) {
         std::cout << "Key: " << k << ", Value: " << v << "\n";
     }
     std::cout << "Original map after split:\n";
-    for (auto const& [k, v] : map3) {
+    for (auto const &[k, v]: map3) {
         std::cout << "Key: " << k << ", Value: " << v << "\n";
     }
 
@@ -205,16 +203,16 @@ int doublyLinkedCHMTest() {
     std::cout << "\n=== Testing setHashFunction ===\n";
 
     // build a small map so collisions are easy
-    DoublyLinkedCircularHashMap<int,int> hmap(8, /*maxLoadFactor=*/1.0);
-    for(int i = 0; i < 16; ++i) {
-        hmap.insert(i, i*10);
+    DoublyLinkedCircularHashMap<int, int> hmap(8, /*maxLoadFactor=*/1.0);
+    for (int i = 0; i < 16; ++i) {
+        hmap.insert(i, i * 10);
     }
     assert(hmap.size() == 16);
 
     // snapshot insertion order
-    std::vector<std::pair<int,int>> before;
+    std::vector<std::pair<int, int> > before;
     before.reserve(16);
-    for(auto const& kv : hmap)
+    for (auto const &kv: hmap)
         before.emplace_back(kv);
 
     // show bucket sizes before
@@ -228,7 +226,7 @@ int doublyLinkedCHMTest() {
     hmap.debugKey(15);
 
     // install a “bad” hash: everything → bucket 0
-    hmap.setHashFunction([](const int &key){
+    hmap.setHashFunction([](const int &key) {
         return 0u;
     });
 
@@ -246,14 +244,13 @@ int doublyLinkedCHMTest() {
     hmap.debugKey(15);
 
     // verify lookups & insertion order
-    for(int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 16; ++i) {
         auto p = hmap.find_ptr(i);
         assert(p && *p == i*10);
-    }
-    {
+    } {
         size_t idx = 0;
-        for(const auto&[fst, snd] : hmap) {
-            assert(fst  == before[idx].first);
+        for (const auto &[fst, snd]: hmap) {
+            assert(fst == before[idx].first);
             assert(snd == before[idx].second);
             ++idx;
         }
@@ -341,24 +338,31 @@ void testDoublyLinkedCircularHashMap() {
     m.insert(70, "seventy");
     std::cout << "Before swap positions of 5 and 10: ";
     m.pos_swap_k(5, 10);
-    for (const auto &key: m | std::views::keys) std::cout << key << " "; std::cout << "\n";
+    for (const auto &key: m | std::views::keys) std::cout << key << " ";
+    std::cout << "\n";
 
     // Shift, rotate, reverse
     std::cout << "\n=== Shift / Rotate / Reverse ===\n";
     m.shift_n_key(10, 1);
-    std::cout << "After shift_n_key(10,1): "; for (const auto &key: m | std::views::keys) std::cout << key << " "; std::cout << "\n";
+    std::cout << "After shift_n_key(10,1): ";
+    for (const auto &key: m | std::views::keys) std::cout << key << " ";
+    std::cout << "\n";
     m.rotate(2);
-    std::cout << "After rotate(2): "; for (const auto &key: m | std::views::keys) std::cout << key << " "; std::cout << "\n";
+    std::cout << "After rotate(2): ";
+    for (const auto &key: m | std::views::keys) std::cout << key << " ";
+    std::cout << "\n";
     m.reverse();
-    std::cout << "After reverse(): "; for (const auto &key: m | std::views::keys) std::cout << key << " "; std::cout << "\n";
+    std::cout << "After reverse(): ";
+    for (const auto &key: m | std::views::keys) std::cout << key << " ";
+    std::cout << "\n";
 
     // Splice & Split
     std::cout << "\n=== Splice & Split ===\n";
 
     // Build two maps:
     DoublyLinkedCircularHashMap<int, int> a, b;
-    for(int i = 1; i <= 5; ++i) a.insert(i, i*10);  // a: 1,2,3,4,5
-    for(int i = 6; i <= 8; ++i) b.insert(i, i*10);  // b: 6,7,8
+    for (int i = 1; i <= 5; ++i) a.insert(i, i * 10); // a: 1,2,3,4,5
+    for (int i = 6; i <= 8; ++i) b.insert(i, i * 10); // b: 6,7,8
     std::cout << "Initial state of map a: ";
     for (const auto &k: a | std::views::keys) std::cout << k << " ";
     std::cout << "\n";
@@ -368,8 +372,8 @@ void testDoublyLinkedCircularHashMap() {
 
     //Splice out [2, 5) from 'a' (i.e. keys 2,3,4) into the front of 'b'
     auto first = a.find(2);
-    auto last  = a.find(5);      // half-open → does not include key 5
-    auto ret   = b.splice(b.begin(), a, first, last);
+    auto last = a.find(5); // half-open → does not include key 5
+    auto ret = b.splice(b.begin(), a, first, last);
     std::cout << "First in splice: " << (*first).first << "\n";
     std::cout << "Last in splice: " << (*last).first << "\n\n";
 
@@ -378,8 +382,8 @@ void testDoublyLinkedCircularHashMap() {
     //   b should be: [2,3,4,6,7,8]
     //   ret should == iterator to the element '2' in b
 
-    std::vector expectA = {1,5};
-    std::vector expectB = {2,3,4,6,7,8};
+    std::vector expectA = {1, 5};
+    std::vector expectB = {2, 3, 4, 6, 7, 8};
 
     // verify a
     {
@@ -423,15 +427,15 @@ void testDoublyLinkedCircularHashMap() {
     std::cout << "Original map:\n";
     for (int i = 0; i < 10; i++) {
         std::cout << "Key: " << i
-                  << ", Value: " << map3[i] << "\n";
+                << ", Value: " << map3[i] << "\n";
     }
     auto splitMap = map3.split(5);
     std::cout << "Split map (should be keys 5..9):\n";
-    for (auto const& [k, v] : splitMap) {
+    for (auto const &[k, v]: splitMap) {
         std::cout << "Key: " << k << ", Value: " << v << "\n";
     }
     std::cout << "Original map after split:\n";
-    for (auto const& [k, v] : map3) {
+    for (auto const &[k, v]: map3) {
         std::cout << "Key: " << k << ", Value: " << v << "\n";
     }
 
@@ -500,8 +504,8 @@ int regex_test() {
 
     boost::sregex_token_iterator iter(text.begin(), text.end(), regex, 0);
 
-    for(const boost::sregex_token_iterator end; iter != end; ++iter ) {
-        std::cout<<*iter<<'\n';
+    for (const boost::sregex_token_iterator end; iter != end; ++iter) {
+        std::cout << *iter << '\n';
     }
 
     return 0;
@@ -512,36 +516,36 @@ int cblas_test() {
     constexpr int N = 3;
 
     // row‑major matrices A and B
-    constexpr double A[ N*N ] = {
-        1.0,  2.0,  3.0,
-        4.0,  5.0,  6.0,
-        7.0,  8.0,  9.0
-   };
-    constexpr double B[ N*N ] = {
-        9.0,  8.0,  7.0,
-        6.0,  5.0,  4.0,
-        3.0,  2.0,  1.0
-   };
-    double C[ N*N ];
+    constexpr double A[N * N] = {
+        1.0, 2.0, 3.0,
+        4.0, 5.0, 6.0,
+        7.0, 8.0, 9.0
+    };
+    constexpr double B[N * N] = {
+        9.0, 8.0, 7.0,
+        6.0, 5.0, 4.0,
+        3.0, 2.0, 1.0
+    };
+    double C[N * N];
 
     // C := 1.0·A·B + 0.0·C
     cblas_dgemm(
-        CblasRowMajor,    // our arrays are row-major
-        CblasNoTrans,     // A not transposed
-        CblasNoTrans,     // B not transposed
-        N, N, N,          // dimensions M=N=K=3
-        1.0,              // alpha
-        A, N,             // A, leading dim = N
-        B, N,             // B, leading dim = N
-        0.0,              // beta
-        C, N              // C, leading dim = N
+        CblasRowMajor, // our arrays are row-major
+        CblasNoTrans, // A not transposed
+        CblasNoTrans, // B not transposed
+        N, N, N, // dimensions M=N=K=3
+        1.0, // alpha
+        A, N, // A, leading dim = N
+        B, N, // B, leading dim = N
+        0.0, // beta
+        C, N // C, leading dim = N
     );
 
     // print C
     std::cout << "C = A * B" << std::endl;
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            std::cout << C[ i*N + j ] << " ";
+            std::cout << C[i * N + j] << " ";
             if (j == N - 1) {
                 std::cout << std::endl;
             }
@@ -551,16 +555,15 @@ int cblas_test() {
     return 0;
 }
 
-void print(const std::vector<int>& v, std::string_view label)
-{
+void print(const std::vector<int> &v, const std::string_view label) {
     std::cout << label << " { ";
-    for (int x : v) std::cout << x << ' ';
+    for (const int x: v) std::cout << x << ' ';
     std::cout << "}\n";
 }
 
 void testUniqueErase() {
     // ----- 1. make a vector that contains duplicates -------------- //
-    std::vector<int> data { 7, 2, 9, 2, 7, 7, 4, 9, 1, 4 };
+    std::vector data{7, 2, 9, 2, 7, 7, 4, 9, 1, 4};
 
     print(data, "raw      ");
 
@@ -569,23 +572,21 @@ void testUniqueErase() {
     print(data, "sorted   ");
 
     // ----- 3. unique + erase idiom ---------------------------------- //
-    auto newEnd = std::unique(data.begin(), data.end());   // step A
-    data.erase(newEnd, data.end());                        // step B
+    const auto newEnd = std::ranges::unique(data).begin(); // step A
+    data.erase(newEnd, data.end()); // step B
 
     print(data, "deduped  ");
 
     // ----- 4. sanity check ------------------------------------------ //
-    const std::vector<int> expected { 1, 2, 4, 7, 9 };
-    if (data != expected)
+    if (const std::vector expected{1, 2, 4, 7, 9}; data != expected)
         std::cerr << "Error: dedup failed!\n";
 }
 
 // ---------------------------------------------------------------------------
 // Quick functional test of find_n_nodes()
 // ---------------------------------------------------------------------------
-void DLCHM_findNNodes_smokeTest()
-{
-    using Map  = DoublyLinkedCircularHashMap<int,std::string>;
+void DLCHM_findNNodes_smokeTest() {
+    using Map = DoublyLinkedCircularHashMap<int, std::string>;
     Map dll;
 
     // 1. build a list with 10 nodes (keys 0..9)
@@ -593,8 +594,8 @@ void DLCHM_findNNodes_smokeTest()
         dll.insert(k, "v" + std::to_string(k));
 
     // 2. request a batch of indices in unsorted order, incl. duplicates
-    const std::vector<int> wants { 7, 2, 2, 9, -1, 0 };   // -1 should wrap to 9
-    const std::list<int> wants2 = { 7, 2, 2, 9, -1, 0 };
+    const std::vector wants{7, 2, 2, 9, -1, 0}; // -1 should wrap to 9
+    const std::list wants2 = {7, 2, 2, 9, -1, 0};
 
     // 3. call the template; C++17 CTAD deduces the container type
     auto ptrs = dll.find_n_nodes(wants, false, true);
@@ -604,11 +605,11 @@ void DLCHM_findNNodes_smokeTest()
     // 3.1 Print the results
     // print output container type:
     std::cout << "find_n_nodes output container type: "
-              << typeid(ptrs).name() << '\n';
+            << typeid(ptrs).name() << '\n';
     std::cout << "find_n_nodes output container type: "
-              << typeid(ptrs2).name() << '\n';
+            << typeid(ptrs2).name() << '\n';
     std::cout << "find_n_nodes output container type: "
-              << typeid(ptrs3).name() << '\n';
+            << typeid(ptrs3).name() << '\n';
 
     // print container size:
     std::cout << "find_n_nodes size: " << ptrs.size() << '\n';
@@ -617,76 +618,225 @@ void DLCHM_findNNodes_smokeTest()
 
     // print container contents:
     std::cout << "find_n_nodes results:\n";
-    for (const auto *n : ptrs)
+    for (const auto *n: ptrs)
         std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
 
     std::cout << "find_n_nodes results (unique):\n";
-    for (const auto *n : ptrs2)
+    for (const auto *n: ptrs2)
         std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
 
     std::cout << "find_n_nodes results (unique, v_out = false)\n";
-    for (const auto *n : ptrs3)
+    for (const auto *n: ptrs3)
         std::cout << "  " << n->key_ << ": " << n->value_ << "\n";
-
 
 
     // 4. verify we got unique nodes {0,2,7,9}
     std::vector<int> gotKeys;
-    for (const auto *n : ptrs) gotKeys.push_back(n->key_);
+    for (const auto *n: ptrs) gotKeys.push_back(n->key_);
 
     std::vector<int> gotKeys2;
-    for (const auto *n : ptrs2) gotKeys2.push_back(n->key_);
+    for (const auto *n: ptrs2) gotKeys2.push_back(n->key_);
 
     std::list<int> gotKeys3;
-    for (const auto *n : ptrs3) gotKeys3.push_back(n->key_);
+    for (const auto *n: ptrs3) gotKeys3.push_back(n->key_);
 
 
-    std::vector<int> expect {0,2,7,9};
-    if (gotKeys != expect)
-    {
+    if (std::vector expect{0, 2, 7, 9}; gotKeys != expect) {
         std::cerr << "find_n_nodes smoke‑test FAILED\n";
         std::cerr << " expected {0,2,7,9}, got { ";
-        for (int k : gotKeys) std::cerr << k << ' ';
+        for (int k: gotKeys) std::cerr << k << ' ';
         std::cerr << "}\n";
     }
     std::cout << "find_n_nodes smoke‑test passed ✔\n";
 
-    std::vector<int> expect2 {0,2,2,7,9,9};
-    if (gotKeys2 != expect2)
-    {
+    if (std::vector expect2{0, 2, 2, 7, 9, 9}; gotKeys2 != expect2) {
         std::cerr << "find_n_nodes 2 smoke‑test FAILED\n";
         std::cerr << " expected {0,2,2,7,9,9}, got { ";
-        for (int k : gotKeys2) std::cerr << k << ' ';
+        for (int k: gotKeys2) std::cerr << k << ' ';
         std::cerr << "}\n";
     }
     std::cout << "find_n_nodes 2 smoke‑test passed ✔\n";
 
-    std::list<int> expect3 {0,2,2,7,9,9};
-    if (gotKeys3 != expect3)
-    {
+    if (std::list expect3{0, 2, 2, 7, 9, 9}; gotKeys3 != expect3) {
         std::cerr << "find_n_nodes 3 smoke‑test FAILED\n";
         std::cerr << " expected {0,2,2,7,9,9}, got { ";
-        for (int k : gotKeys3) std::cerr << k << ' ';
+        for (int k: gotKeys3) std::cerr << k << ' ';
         std::cerr << "}\n";
     }
     std::cout << "find_n_nodes 3 smoke‑test passed ✔\n";
-
 }
 
 void test_zigzag() {
-    using Map  = DoublyLinkedCircularHashMap<int,std::string>;
+    using Map = DoublyLinkedCircularHashMap<int, std::string>;
 
     for (int i = 0; i < 10; ++i) {
         std::pair<int, int> p = Map::computeZigzagOffsetPair(i, 0, 0);
         auto [left, right] = p;
         std::cout << "computeZigzagOffsetPair(" << i << ") = "
-                  << "left: " << left << ", right: " << right << "\n";
+                << "left: " << left << ", right: " << right << "\n";
     }
 }
 
-int main(){
+//------------------------------------------------------------------------------
+// A minimal allocator that just counts allocate()/deallocate() calls
+struct CountingAllocatorBase {
+    static size_t allocCount;
+    static size_t deallocCount;
+};
+
+size_t CountingAllocatorBase::allocCount = 0;
+size_t CountingAllocatorBase::deallocCount = 0;
+
+// now every specialization of CountingAllocator<T> will inherit the same counters:
+template<typename T>
+struct CountingAllocator : CountingAllocatorBase {
+    using value_type = T;
+
+    CountingAllocator() = default;
+
+    template<typename U>
+    explicit CountingAllocator(const CountingAllocator<U> &) noexcept {
+    }
+
+    static T *allocate(const size_t n) {
+        allocCount += n; // this is CountingAllocatorBase::allocCount
+        return static_cast<T *>(operator new(n * sizeof(T)));
+    }
+
+    static void deallocate(T *p, const size_t n) noexcept {
+        deallocCount += n;
+        ::operator delete(p);
+    }
+
+    template<typename U, typename... Args>
+    void construct(U *p, Args &&... args) {
+        ::new(static_cast<void *>(p)) U(std::forward<Args>(args)...);
+    }
+
+    template<typename U>
+    static void destroy(U *p) {
+        p->~U();
+    }
+};
+
+//------------------------------------------------------------------------------
+// Test function for allocator support
+void testAllocatorSupport() {
+    using MapT = DoublyLinkedCircularHashMap<
+        int,
+        std::string,
+        std::hash<int>,
+        std::equal_to<int>,
+        CountingAllocator<std::pair<const int, std::string> >
+    >;
+    using Alloc = CountingAllocator<std::pair<const int, std::string> >;
+
+    std::cout << "\n=== Testing Custom Allocator Support ===\n";
+
+    // Reset counters
+    Alloc::allocCount = 0;
+    Alloc::deallocCount = 0;
+
+    // Construct map with our counting allocator
+    MapT m(
+        /*initBuckets=*/ 8,
+                         /*maxLoadFactor=*/ 1.0,
+                         std::hash<int>{},
+                         std::equal_to<int>{},
+                         Alloc{}
+    );
+
+    constexpr int N = 10;
+    // 1) Insert N elements
+    for (int i = 0; i < N; ++i) {
+        m.insert(i, std::to_string(i));
+    }
+    std::cout << "After insert, allocCount = " << Alloc::allocCount
+            << " (expected " << N << ")\n";
+    assert(Alloc::allocCount == N);
+
+    // 2) Remove them one by one
+    for (int i = 0; i < N; ++i) {
+        const bool erased = m.remove(i);
+        assert(erased);
+    }
+    std::cout << "After remove, deallocCount = " << Alloc::deallocCount
+            << " (expected " << N << ")\n";
+    assert(Alloc::deallocCount == N);
+
+    std::cout << "[OK] Custom Allocator test passed\n";
+}
+
+#include <chrono>
+#include <random>
+
+//------------------------------------------------------------------------------
+// Benchmark for find_n_nodes
+void testFindNNodesPerformance() {
+    using namespace std::chrono;
+
+    std::cout << "\n=== Benchmark: find_n_nodes ===\n";
+
+    // 1) build a map of size N
+    constexpr size_t N = 100000;
+    DoublyLinkedCircularHashMap<int, int> m(/*initBuckets=*/2 * N, /*maxLoadFactor=*/1.0);
+    for (int i = 0; i < static_cast<int>(N); ++i) {
+        m.insert(i, i);
+    }
+
+    // 2) prepare a reproducible RNG for picking random indices with no duplicates
+    std::mt19937_64 rng(12345);
+    std::uniform_int_distribution dist(0, static_cast<int>(N) - 1);
+
+    // 3) choose a variety of M values (number of requests)
+    const std::vector<size_t> Mvals = {
+        1,
+        10,
+        100,
+        1000,
+        N / 10,
+        N / 2,
+        N - 1
+    };
+
+    // 4) for each M, generate M random indices, time find_n_nodes, print
+    for (const size_t M: Mvals) {
+        // sample M random requests
+        std::vector<int> req;
+        req.reserve(M);
+        // fill with random indices no repeats allowed and no index > N
+        for (size_t i = 0; i < M; ++i) {
+            req.push_back(dist(rng));
+        }
+
+        // warm-up
+        volatile auto dummy = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true, true);
+
+        // timed run
+        auto t0 = steady_clock::now();
+        auto out = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true, true);
+        auto t1 = steady_clock::now();
+
+        // sanity check: we got back M pointers
+        assert(out.size() == M);
+
+        const auto us = duration_cast<microseconds>(t1 - t0).count();
+        const double bound = static_cast<double>(M) / static_cast<double>(M + 1) * static_cast<double>(N - 1);
+
+        std::cout
+                << " M=" << M
+                << "  time=" << us << " µs"
+                << "  bound≈" << static_cast<size_t>(bound) << " visits\n";
+    }
+
+    std::cout << "[DONE] find_n_nodes benchmark\n";
+}
+
+int main() {
     //call the tests
     std::cout << "=== Starting tests ===\n";
+    testFindNNodesPerformance();
+    testAllocatorSupport();
     test_zigzag();
     DLCHM_findNNodes_smokeTest();
     testUniqueErase();
@@ -700,6 +850,7 @@ int main(){
     std::cout << "Exiting...\n";
     return 0;
 }
+
 // TIP See CLion help at <a
 // href="https://www.jetbrains.com/help/clion/">jetbrains.com/help/clion/</a>.
 //  Also, you can try interactive lessons for CLion by selecting

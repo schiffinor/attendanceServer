@@ -71,7 +71,7 @@ template<
     typename Value,
     typename Hash = std::hash<Key>,
     typename KeyEq = std::equal_to<Key>,
-    typename Alloc = std::allocator<std::pair<const Key, Value>> >
+    typename Alloc = std::allocator<std::pair<const Key, Value> > >
 class DoublyLinkedCircularHashMap {
     //───────────────────────────────────────────────────────────────────────────//
     // ----- Node structure -----
@@ -88,6 +88,9 @@ class DoublyLinkedCircularHashMap {
      * @tparam Key   Type of the key stored in the map.
      * @tparam Value Type of the value associated with the key.
      */
+    struct Node;
+    using node_allocator_t = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
+    node_allocator_t alloc_;
 #include <new>   // for hardware_*_interference_size
 #if defined(__cpp_lib_hardware_interference_size)
     struct alignas(std::hardware_destructive_interference_size) Node {
@@ -122,8 +125,7 @@ class DoublyLinkedCircularHashMap {
             // No further initialization needed—ready to be linked in
         }
     };
-    using node_allocator_t = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
-    node_allocator_t alloc_;
+
 
     //────────────────────────────────────────────────────────────────────────//
     //----- Internal data members for DoublyLinkedCircularHashMap -----
@@ -213,7 +215,7 @@ class DoublyLinkedCircularHashMap {
      */
     template<class K2>
         requires std::invocable<Hash, const K2 &>
-    size_t bucketIndex_(const K2& k) const {
+    size_t bucketIndex_(const K2 &k) const {
         return hashFunc_(k) % htBaseVector_.size();
     }
 
@@ -433,16 +435,16 @@ public:
         const double maxLoadFactor = 1.0,
         std::function<size_t(const Key &)> hashFunc = std::hash<Key>(),
         std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>(),
-        const Alloc& alloc = Alloc{}
+        const Alloc &alloc = Alloc{}
     )
-        : htBaseVector_(initBuckets, nullptr), // all buckets start empty
-          bucketSizes_(initBuckets, 0), // track 0 elements per bucket
-          head_(nullptr), // empty list → no head
-          tail_(nullptr), // empty list → no tail
-          maxLoadFactor_(maxLoadFactor), // store user’s max load factor
-          hashFunc_(std::move(hashFunc)), // move-in hash functor
-          keyEqFunc_(std::move(keyEqFunc)), // move-in equality functor
-          alloc_(alloc) // store allocator
+        : alloc_(alloc), // all buckets start empty
+          htBaseVector_(initBuckets, nullptr), // track 0 elements per bucket
+          bucketSizes_(initBuckets, 0), // empty list → no head
+          head_(nullptr), // empty list → no tail
+          tail_(nullptr), // store user’s max load factor
+          maxLoadFactor_(maxLoadFactor), // move-in hash functor
+          hashFunc_(std::move(hashFunc)), // move-in equality functor
+          keyEqFunc_(std::move(keyEqFunc)) // store allocator
     {
         // Nothing else to do here—size_ and rehashCount_ default to 0.
     }
@@ -617,8 +619,7 @@ public:
     void maxLoadFactor(const double newMaxLoadFactor) {
         maxLoadFactor_ = newMaxLoadFactor; // update threshold
         // If we're already above the new threshold, redistribute now
-        const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor));
-        if (need > bucketCount()) {
+        if (const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor)); need > bucketCount()) {
             rehash_(bucketCount());
         }
     }
@@ -743,7 +744,7 @@ public:
             node,
             std::move(key),
             std::move(value)
-            );
+        );
 
         // 4) Splice into the circular doubly-linked list
         if (where == -1 || where == intSize) {
@@ -1133,7 +1134,7 @@ public:
          */
         iterator operator++(int) {
             iterator tmp = *this;
-            ++(*this);
+            ++*this;
             return tmp;
         }
 
@@ -1156,7 +1157,7 @@ public:
          */
         iterator operator--(int) {
             iterator tmp = *this;
-            --(*this);
+            --*this;
             return tmp;
         }
 
@@ -1240,7 +1241,7 @@ public:
          */
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++(*this);
+            ++*this;
             return tmp;
         }
 
@@ -1263,7 +1264,7 @@ public:
          */
         const_iterator operator--(int) {
             const_iterator tmp = *this;
-            --(*this);
+            --*this;
             return tmp;
         }
 
@@ -2232,8 +2233,7 @@ public:
         Node *dst_node = from_src ? nullptr : cur;
 
         // 8) Determine optimal path for second walk
-        const int raw_dist = std::abs(src_from_head - dst_from_head);
-        if (raw_dist <= second_walk) {
+        if (const int raw_dist = std::abs(src_from_head - dst_from_head); raw_dist <= second_walk) {
             // walking directly from current position is cheaper
             cur = walk(cur, raw_dist, first_dir);
         } else {
@@ -2323,7 +2323,9 @@ public:
      *     step choosing the closer next request to minimize total node hops.
      *  4. Populates an output container of `Node*`, preserving input order or including
      *     duplicates as requested.
-     *  5. Runs in O(M + K) time, where M = unique requests, K ≪ N total hops.
+     *  5. Runs traversing at max (M/(M+1))(N-1) nodes, where M is the number of
+     *     unique requests and N is the total number of nodes. This function is most beneficial
+     *     when M << N, as it avoids traversing the entire list for each request.
      *
      * @tparam Index      Integer type of input indices (signed OK).
      * @tparam Container  Container template (e.g. std::vector) for output.
@@ -2334,6 +2336,7 @@ public:
      * @param pre_sorted  If true, skip sorting step.
      * @param verbose     If true, emit step-by-step debug prints.
      * @param allow_dupes If true, retain duplicate indices; else skip duplicates.
+     * @param profiling_info If true, emit profiling info.
      * @return Container of Node* corresponding to each requested index.
      */
     template<typename Index,
@@ -2344,7 +2347,8 @@ public:
     auto find_n_nodes(const C &in,
                       const bool pre_sorted = false,
                       const bool verbose = false,
-                      const bool allow_dupes = false) {
+                      const bool allow_dupes = false,
+                      const bool profiling_info = false) {
         using S = std::make_signed_t<Index>;
         using AllocNodePtr = typename std::allocator_traits<AllocIndex>
                 ::template rebind_alloc<Node *>;
@@ -2428,6 +2432,7 @@ public:
         size_t left = 0, right = M - 1;
         Node *left_ref = head_, *right_ref = tail_;
 
+        size_t total_walk = 0;
         while (left <= right) {
             // 2d. Compute next left/right pick offsets
             auto [l_off, r_off] = computeZigzagOffsetPair(0, l_cnt, r_cnt);
@@ -2438,6 +2443,7 @@ public:
             const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
             const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
             bool pick_left = (l_dist <= r_dist);
+            total_walk += pick_left ? l_dist : r_dist;
 
             // 2f. Walk to the chosen node
             Node *cur = pick_left
@@ -2461,6 +2467,13 @@ public:
             for (auto pos: pos_mod_idx[pick_left ? left - 1 : right + 1]) {
                 out[pos] = cur;
             }
+        }
+
+        if (profiling_info) {
+            std::cout << "find_n_nodes: profiling info: \n";
+            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
+                    << (static_cast<double>(M) / (M + 1)) * (N - 1) << "\n";
+            std::cout << "Actual walk bound = " << total_walk << "\n";
         }
 
         // 3. Convert to requested container type
@@ -2523,7 +2536,8 @@ public:
     auto find_n_nodes(const C &in,
                       bool pre_sorted = false,
                       bool verbose = false,
-                      bool allow_dupes = false) {
+                      bool allow_dupes = false,
+                      bool profiling_info = false) {
         using Index = std::ranges::range_value_t<C>;
         using AllocIndex = typename C::allocator_type;
 
@@ -2531,7 +2545,7 @@ public:
             Index,
             get_template<std::remove_cvref_t<C> >::template apply,
             AllocIndex
-        >(in, pre_sorted, verbose, allow_dupes);
+        >(in, pre_sorted, verbose, allow_dupes, profiling_info);
     }
 
 
