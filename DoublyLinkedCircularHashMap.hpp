@@ -7,7 +7,7 @@
  *          cache‑friendly nodes and live happily ever after.”
  *
  * ──────────────────────────────────────────────────────────────────────────────
- *  👋 Hi!  Román here.  I’m still learning modern C++ (prior to this the most
+ *  Hi!  Román here.  I’m still learning modern C++ (prior to this the most
  *  I had written was a projectile motion calculator and a helper function for
  *  calculating pairwise minkowski distances in python a la scipy cdist) – so I
  *  decided to throw myself into the deep-end by creating a STL-like mash up a
