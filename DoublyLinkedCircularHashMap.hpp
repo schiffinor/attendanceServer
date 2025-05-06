@@ -70,7 +70,8 @@ template<
     typename Key,
     typename Value,
     typename Hash = std::hash<Key>,
-    typename KeyEq = std::equal_to<Key> >
+    typename KeyEq = std::equal_to<Key>,
+    typename Alloc = std::allocator<std::pair<const Key, Value>> >
 class DoublyLinkedCircularHashMap {
     //───────────────────────────────────────────────────────────────────────────//
     // ----- Node structure -----
@@ -87,7 +88,13 @@ class DoublyLinkedCircularHashMap {
      * @tparam Key   Type of the key stored in the map.
      * @tparam Value Type of the value associated with the key.
      */
-    struct alignas(64) Node {
+#include <new>   // for hardware_*_interference_size
+#if defined(__cpp_lib_hardware_interference_size)
+    struct alignas(std::hardware_destructive_interference_size) Node {
+#else
+    constexpr std::size_t CacheLineSize = 64;
+    struct alignas(CacheLineSize) Node {
+#endif
         Key key_; /**< The key for this node. Immutable after construction. */
         Value value_; /**< The value mapped to key_. Move-constructed for efficiency. */
         //----- Circular doubly-linked list pointers (maintain insertion order) -----
@@ -115,6 +122,8 @@ class DoublyLinkedCircularHashMap {
             // No further initialization needed—ready to be linked in
         }
     };
+    using node_allocator_t = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
+    node_allocator_t alloc_;
 
     //────────────────────────────────────────────────────────────────────────//
     //----- Internal data members for DoublyLinkedCircularHashMap -----
@@ -195,6 +204,17 @@ class DoublyLinkedCircularHashMap {
     [[nodiscard]] size_t bucketIndex_(const Key &key) const {
         // Hash + modulo ensures uniform spread and wraparound.
         return hashFunc_(key) % htBaseVector_.size();
+    }
+
+    /**
+     * @brief Heterogeneous bucket index computation.
+     * @param k Key of a different type.
+     * @return Index in htBaseVector_ after hashing and modulo.
+     */
+    template<class K2>
+        requires std::invocable<Hash, const K2 &>
+    size_t bucketIndex_(const K2& k) const {
+        return hashFunc_(k) % htBaseVector_.size();
     }
 
     /**
@@ -406,12 +426,14 @@ public:
      * @param maxLoadFactor  Maximum allowed load factor before automatic rehash (default: 1.0).
      * @param hashFunc       Hash functor to map keys to size_t (default: std::hash<Key>).
      * @param keyEqFunc      Equality comparator for keys (default: std::equal_to<Key>).
+     * @param alloc          Allocator for Node objects (default: std::allocator<Node>).
      */
     explicit DoublyLinkedCircularHashMap(
         size_t initBuckets = 16,
         const double maxLoadFactor = 1.0,
         std::function<size_t(const Key &)> hashFunc = std::hash<Key>(),
-        std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>()
+        std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>(),
+        const Alloc& alloc = Alloc{}
     )
         : htBaseVector_(initBuckets, nullptr), // all buckets start empty
           bucketSizes_(initBuckets, 0), // track 0 elements per bucket
@@ -419,7 +441,8 @@ public:
           tail_(nullptr), // empty list → no tail
           maxLoadFactor_(maxLoadFactor), // store user’s max load factor
           hashFunc_(std::move(hashFunc)), // move-in hash functor
-          keyEqFunc_(std::move(keyEqFunc)) // move-in equality functor
+          keyEqFunc_(std::move(keyEqFunc)), // move-in equality functor
+          alloc_(alloc) // store allocator
     {
         // Nothing else to do here—size_ and rehashCount_ default to 0.
     }
@@ -594,7 +617,8 @@ public:
     void maxLoadFactor(const double newMaxLoadFactor) {
         maxLoadFactor_ = newMaxLoadFactor; // update threshold
         // If we're already above the new threshold, redistribute now
-        if (loadFactor() > newMaxLoadFactor) {
+        const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor));
+        if (need > bucketCount()) {
             rehash_(bucketCount());
         }
     }
@@ -616,7 +640,23 @@ public:
             1,
             static_cast<size_t>(std::ceil(static_cast<double>(newSize) / maxLoadFactor_))
         );
-        rehash_(newBucketCount); // O(N) rehash cost
+        if (newBucketCount > bucketCount()) {
+            // Only rehash if we need more buckets
+            rehash_(newBucketCount);
+        }
+    }
+
+    /**
+     * @brief Resize the hash table to a new number of buckets.
+     *
+     * This will rehash all existing elements into the new bucket array.
+     * If newSize is less than the current size, it will throw an exception.
+     *
+     * @param newSize New number of buckets.
+     */
+    void rehash(const size_t newSize) {
+        if (newSize == bucketCount()) return;
+        rehash_(newSize); // rehash to new size
     }
 
     /**
@@ -631,7 +671,8 @@ public:
             Node *cur = head_->next_;
             while (cur != head_) {
                 Node *nxt = cur->next_;
-                delete cur; // free each node
+                std::allocator_traits<node_allocator_t>::destroy(alloc_, cur); // free each node
+                std::allocator_traits<node_allocator_t>::deallocate(alloc_, cur, 1); // deallocate
                 cur = nxt;
             }
             delete head_; // finally delete the original head
@@ -640,6 +681,9 @@ public:
         head_ = tail_ = nullptr;
         size_ = 0;
         std::fill(htBaseVector_.begin(), htBaseVector_.end(), nullptr);
+        std::ranges::fill(bucketSizes_, 0);
+        maxBucketSize_ = 0;
+        largestBucketIdx_ = SIZE_MAX;
     }
 
     /**
@@ -693,7 +737,13 @@ public:
         }
 
         // 3) Create a fresh node (self-linked in list)
-        Node *node = new Node(key, value);
+        Node *node = std::allocator_traits<node_allocator_t>::allocate(alloc_, 1);
+        std::allocator_traits<node_allocator_t>::construct(
+            alloc_,
+            node,
+            std::move(key),
+            std::move(value)
+            );
 
         // 4) Splice into the circular doubly-linked list
         if (where == -1 || where == intSize) {
@@ -768,7 +818,8 @@ public:
                     unlink_(cur);
                 }
 
-                delete cur; // free memory
+                std::allocator_traits<node_allocator_t>::destroy(alloc_, cur); // Free the node
+                std::allocator_traits<node_allocator_t>::deallocate(alloc_, cur, 1); // Deallocate memory
                 --size_; // decrement count
                 return true;
             }
@@ -1029,6 +1080,9 @@ public:
     //───────────────────────────────────────────────────────────────────────────//
     // ----- Iterator Support -----
 
+    // Forward declare const_iterator
+    struct const_iterator;
+
     /**
      * @brief Bidirectional iterator for traversing in insertion order.
      *
@@ -1131,9 +1185,13 @@ public:
         reference operator*() const {
             return {cur->key_, cur->value_};
         }
+
+        explicit operator const_iterator() const noexcept {
+            return const_iterator(cur, this);
+        }
     };
 
-    /**
+    /**s
      * @brief Const bidirectional iterator for insertion-order traversal.
      *
      * Identical behavior to iterator, but yields const Value&.
@@ -1341,9 +1399,16 @@ public:
             return it; // nothing to do
         }
         Node *node = it.cur;
-        iterator nextIt = ++it; // advance before deletion
+        Node *nextNode = node->next_;
+        Node *oldHead = head_;
         remove(node->key_);
-        return nextIt;
+
+        // If we just deleted the only element, or if nextNode wrapped back to head, we're at end():
+        if (!head_ || nextNode == oldHead) {
+            return end(); // no more elements
+        }
+        // Otherwise, return the iterator to the next element
+        return iterator(nextNode, this); // wrap raw node in iterator
     }
 
 
@@ -2445,9 +2510,7 @@ public:
         using apply = TT<X, Ys...>;
     };
 
-    // -----------------------------------------------
     // 2. wrapper that forwards a real template
-    // -----------------------------------------------
 
     /**
      * @brief Convenience overload for find_n_nodes on arbitrary ranges.
