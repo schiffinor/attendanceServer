@@ -2684,6 +2684,97 @@ public:
         >(in, pre_sorted, verbose, profiling_info);
     }
 
+    std::vector<Node *> find_n_nodes(
+            std::vector<int> &in,
+            const bool pre_sorted = false,
+            const bool verbose = false,
+            const bool profiling_info = false) {
+        using Vec = std::vector<Node *>;
+
+        const std::size_t N = size_; // total nodes in list
+        const int tail_i = static_cast<int>(N) - 1; // last index
+
+        // Early exit for empty map
+        if (UNLIKELY(N == 0)) {
+            return Vec{};
+        }
+
+        // 2a. Normalize & collect indices modulo N
+        for (int i = 0; i < in.size(); ++i) {
+            int m = in[i] % static_cast<int>(N);
+            if (m < 0) m += static_cast<int>(N);
+            in[i] = m;
+        }
+        if (verbose) {
+            std::cout << "find_n_nodes: normalized = { ";
+            for (const auto m: in) std::cout << m << ' ';
+            std::cout << "}\n";
+        }
+
+        // 2b. Sort & dedupe
+        if (!pre_sorted) {
+            std::ranges::sort(in);
+        }
+#ifndef NDEBUG
+        if (!std::ranges::is_sorted(in))
+            throw std::logic_error("find_n_nodes: indices not sorted!");
+#endif
+
+        const std::size_t M = in.size();
+        if (M == 0) {
+            return Vec{}; // no requests remain
+        }
+
+        // 2c. Greedy zig-zag walk
+        Vec out(M);
+        std::size_t l_cnt = 0, r_cnt = 0;
+        int bnd_low = 0, bnd_high = tail_i;
+        size_t left = 0, right = M - 1;
+        Node *left_ref = head_, *right_ref = tail_;
+
+        size_t total_walk = 0;
+        while (left <= right) {
+            // 2d. Compute next left/right pick offsets
+            auto [l_off, r_off] = computeZigzagOffsetPair(0, l_cnt, r_cnt);
+            const int l_mod_idx = in[0 + l_off];
+            const int r_mod_idx = in[M + r_off];
+
+            // 2e. Distances from current bounds
+            const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
+            const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
+            bool pick_left = (l_dist <= r_dist);
+            total_walk += pick_left ? l_dist : r_dist;
+
+            // 2f. Walk to the chosen node
+            Node *cur = pick_left
+                            ? walk(left_ref, static_cast<size_t>(l_dist), true)
+                            : walk(right_ref, static_cast<size_t>(r_dist), false);
+
+            // 2g. Update bounds & refs
+            if (pick_left) {
+                bnd_low = l_mod_idx;
+                left_ref = cur;
+                ++l_cnt;
+                ++left;
+            } else {
+                bnd_high = r_mod_idx;
+                right_ref = cur;
+                ++r_cnt;
+                --right;
+            }
+            out[pick_left ? left - 1 : right + 1] = cur;
+
+        }
+
+        if (profiling_info) {
+            std::cout << "find_n_nodes: profiling info: \n";
+            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
+                    << (static_cast<double>(M) / (M + 1)) * (N - 1) << "\n";
+            std::cout << "Actual walk bound = " << total_walk << "\n";
+        }
+        return out;
+    }
+
 
     // ---------- 5. Rotating and Reversal ---------- //
 

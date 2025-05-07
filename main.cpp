@@ -815,7 +815,7 @@ void testFindNNodesPerformance() {
 
         // timed run
         auto t0 = steady_clock::now();
-        auto out = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, true);
+        std::vector out = m.find_n_nodes(req, /*pre_sorted=*/false, /*verbose=*/false, false);
         auto t1 = steady_clock::now();
 
         // sanity check: we got back M pointers
