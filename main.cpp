@@ -594,9 +594,9 @@ void DLCHM_findNNodes_smokeTest() {
         dll.insert(k, "v" + std::to_string(k));
 
     // 2. request a batch of indices in unsorted order, incl. duplicates
-    const std::vector wants{7, 2, 2, 9, -1, 0}; // -1 should wrap to 9
-    const std::list wants2 = {7, 2, 2, 9, -1, 0};
-    const std::vector wants3{0, 2, 7, 9}; // unique keys
+    std::vector wants{7, 2, 2, 9, -1, 0}; // -1 should wrap to 9
+    std::vector wants2 = {7, 2, 2, 9, -1, 0, -5};
+    std::vector wants3{0, 2, 7, 9}; // unique keys
 
     // 3. call the template; C++17 CTAD deduces the container type
     auto ptrs = dll.find_n_nodes(wants3, true, true);
@@ -638,7 +638,7 @@ void DLCHM_findNNodes_smokeTest() {
     std::vector<int> gotKeys2;
     for (const auto *n: ptrs2) gotKeys2.push_back(n->key_);
 
-    std::list<int> gotKeys3;
+    std::vector<int> gotKeys3;
     for (const auto *n: ptrs3) gotKeys3.push_back(n->key_);
 
 
@@ -658,9 +658,9 @@ void DLCHM_findNNodes_smokeTest() {
     }
     std::cout << "find_n_nodes 2 smoke‑test passed ✔\n";
 
-    if (std::list expect3{0, 2, 2, 7, 9, 9}; gotKeys3 != expect3) {
+    if (std::vector expect3{0, 2, 2, 5, 7, 9, 9, }; gotKeys3 != expect3) {
         std::cerr << "find_n_nodes 3 smoke‑test FAILED\n";
-        std::cerr << " expected {0,2,2,7,9,9}, got { ";
+        std::cerr << " expected {0,2,2,5,7,9,9}, got { ";
         for (int k: gotKeys3) std::cerr << k << ' ';
         std::cerr << "}\n";
     }

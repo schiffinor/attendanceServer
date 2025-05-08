@@ -2519,7 +2519,7 @@ public:
         typename AllocIndex,
         typename... Rest,
         IntRange C = Container<Index, AllocIndex, Rest...> >
-    auto find_n_nodes(const C &in,
+    auto find_n_nodes_sg(const C &in,
                       const bool pre_sorted = false,
                       const bool verbose = false,
                       const bool profiling_info = false) {
@@ -2670,7 +2670,7 @@ public:
      */
     template<IntRange C>
     [[nodiscard]]
-    auto find_n_nodes(const C &in,
+    auto find_n_nodes_sg(const C &in,
                       bool pre_sorted = false,
                       bool verbose = false,
                       bool profiling_info = false) {
@@ -2684,7 +2684,7 @@ public:
         >(in, pre_sorted, verbose, profiling_info);
     }
 
-    std::vector<Node *> find_n_nodes(
+    std::vector<Node *> find_n_nodes_impl(
             std::vector<int> &in,
             const bool pre_sorted = false,
             const bool verbose = false,
@@ -2700,10 +2700,10 @@ public:
         }
 
         // 2a. Normalize & collect indices modulo N
-        for (int i = 0; i < in.size(); ++i) {
-            int m = in[i] % static_cast<int>(N);
+        for (int & i : in) {
+            int m = i % static_cast<int>(N);
             if (m < 0) m += static_cast<int>(N);
-            in[i] = m;
+            i = m;
         }
         if (verbose) {
             std::cout << "find_n_nodes: normalized = { ";
@@ -2769,7 +2769,7 @@ public:
         if (profiling_info) {
             std::cout << "find_n_nodes: profiling info: \n";
             std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
-                    << (static_cast<double>(M) / (M + 1)) * (N - 1) << "\n";
+                    << (static_cast<double>(M) / (static_cast<double>(M) + 1)) * (N - 1) << "\n";
             std::cout << "Actual walk bound = " << total_walk << "\n";
         }
         return out;
@@ -2812,6 +2812,27 @@ public:
             std::swap(cur->next_, cur->prev_);
             cur = cur->prev_; // prev_ is original next_
         } while (cur != head_);
+    }
+
+    // 2) Non-const overload: just forward to impl
+    std::vector<Node*>
+    find_n_nodes(std::vector<int>& in,
+                 const bool pre_sorted       = false,
+                 const bool verbose          = false,
+                 const bool profiling_info  = false)
+    {
+        return find_n_nodes_impl(in, pre_sorted, verbose, profiling_info);
+    }
+
+    // 3) Const overload: copy once, then forward
+    std::vector<Node*>
+    find_n_nodes(const std::vector<int>& in,
+                 const bool pre_sorted       = false,
+                 const bool verbose          = false,
+                 const bool profiling_info  = false)
+    {
+        std::vector<int> copy = in;   // ← single allocation + O(n) copy
+        return find_n_nodes_impl(copy, pre_sorted, verbose, profiling_info);
     }
 
 
