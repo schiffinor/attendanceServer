@@ -189,37 +189,34 @@
 
 #pragma once
 
-#include <functional>
-#include <utility>
-#include <vector>
-#include <stdexcept>
 #include <algorithm>
+#include <cmath>
+#include <concepts>
+#include <functional>
 #include <iostream>
 #include <iterator>
-#include <cmath>
 #include <ranges>
-#include <unordered_set>
+#include <stdexcept>
 #include <type_traits>
-#include <concepts>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 // Branch prediction hints for GCC/Clang (no-op on other compilers)
 #if defined(__GNUC__) || defined(__clang__)
-# define LIKELY(x)   (__builtin_expect(!!(x), 1))
-# define UNLIKELY(x) (__builtin_expect(!!(x), 0))
-# define NOEXCEPT noexcept
+#define LIKELY(x) (__builtin_expect(!!(x), 1))
+#define UNLIKELY(x) (__builtin_expect(!!(x), 0))
+#define NOEXCEPT noexcept
 #else
-# define LIKELY(x)   (x)
-# define UNLIKELY(x) (x)
+#define LIKELY(x) (x)
+#define UNLIKELY(x) (x)
 #endif
 
 template<typename R>
-concept IntRange =
-        std::ranges::input_range<R> &&
-        std::integral<std::ranges::range_value_t<R> >;
+concept IntRange = std::ranges::input_range<R> && std::integral<std::ranges::range_value_t<R>>;
 
 template<typename C>
-concept Reservable =
-        requires(C c, std::size_t n) { c.reserve(n); };
+concept Reservable = requires(C c, std::size_t n) { c.reserve(n); };
 
 
 /**
@@ -248,15 +245,14 @@ concept Reservable =
  *       // Iterates in insertion order: ("foo", 42)
  *   }
  */
-template<
-    typename Key,
-    typename Value,
-    typename Hash = std::hash<Key>,
-    typename KeyEq = std::equal_to<Key>,
-    typename Alloc = std::allocator<std::pair<const Key, Value> > >
+template<typename Key,
+         typename Value,
+         typename Hash  = std::hash<Key>,
+         typename KeyEq = std::equal_to<Key>,
+         typename Alloc = std::allocator<std::pair<const Key, Value>>>
 class DoublyLinkedCircularHashMap {
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Node structure -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Node structure -----
 
     /**
      * @brief Node structure for DoublyLinkedCircularHashMap.
@@ -271,10 +267,18 @@ class DoublyLinkedCircularHashMap {
      * @tparam Value Type of the value associated with the key.
      */
     struct Node;
-    using node_allocator_t = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
-    node_allocator_t alloc_;
+    using allocator_type = Alloc;
+    template<typename T>
+    using rebind_t           = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
+    using node_allocator_t   = rebind_t<Node>;
+    using size_t_allocator_t = rebind_t<size_t>;
+
+    Alloc alloc_;
+    node_allocator_t nodeAlloc_;
+    size_t_allocator_t sizeAlloc_;
+
     struct alignas(64) Node {
-        Key key_; /**< The key for this node. Immutable after construction. */
+        Key key_;     /**< The key for this node. Immutable after construction. */
         Value value_; /**< The value mapped to key_. Move-constructed for efficiency. */
         //----- Circular doubly-linked list pointers (maintain insertion order) -----
         Node *next_; /**< Next node in insertion order; wraps around to head_ if at tail_. */
@@ -294,8 +298,8 @@ class DoublyLinkedCircularHashMap {
         Node(const Key &key, Value value)
             : key_(key),
               value_(std::move(value)),
-              next_(this), // Self-referential: node is its own next in empty list
-              prev_(this), // Self-referential: node is its own prev in empty list
+              next_(this),        // Self-referential: node is its own next in empty list
+              prev_(this),        // Self-referential: node is its own prev in empty list
               hashNext_(nullptr), // Not in a bucket yet
               hashPrev_(nullptr) {
             // No further initialization needed—ready to be linked in
@@ -303,33 +307,36 @@ class DoublyLinkedCircularHashMap {
     };
 
 
-    //────────────────────────────────────────────────────────────────────────//
+    // ────────────────────────────────────────────────────────────────────────//
     //----- Internal data members for DoublyLinkedCircularHashMap -----
 
-    std::vector<Node *> htBaseVector_; /**< Heads of each hash bucket chain. Size = number of buckets. */
-    std::vector<size_t> bucketSizes_; /**< Number of nodes currently in each bucket, for diagnostics. */
+    std::vector<Node *, node_allocator_t> htBaseVector_;
+    /**< Heads of each hash bucket chain. Size = number of buckets. */
+    std::vector<size_t, size_t_allocator_t> bucketSizes_;
+    /**< Number of nodes currently in each bucket, for diagnostics. */
 
-    Node *head_ = nullptr; /**< First node in insertion order; nullptr if map is empty. */
-    Node *tail_ = nullptr; /**< Last node in insertion order; nullptr if map is empty. */
-    size_t size_ = 0; /**< Total number of elements currently in the map. */
+    Node *head_  = nullptr; /**< First node in insertion order; nullptr if map is empty. */
+    Node *tail_  = nullptr; /**< Last node in insertion order; nullptr if map is empty. */
+    size_t size_ = 0;       /**< Total number of elements currently in the map. */
 
     double maxLoadFactor_ = 1.0; /**< Threshold (size_/bucket_count_) to trigger rehashing. */
 
     std::function<size_t(const Key &)> hashFunc_; /**< User-specified or default hash functor (std::hash). */
     std::function<bool(const Key &, const Key &)> keyEqFunc_; /**< Equality comparator for Key. */
 
-    size_t rehashCount_ = 0; /**< Number of times the table has been rehashed. Useful for profiling. */
-    size_t maxBucketSize_ = 0; /**< Largest bucket size observed since last rehash. */
+    size_t rehashCount_      = 0;        /**< Number of times the table has been rehashed. Useful for profiling. */
+    size_t maxBucketSize_    = 0;        /**< Largest bucket size observed since last rehash. */
     size_t largestBucketIdx_ = SIZE_MAX; /**< Index of the bucket that currently has maxBucketSize_. */
 
-    //────────────────────────────────────────────────────────────────────────//
+    // ────────────────────────────────────────────────────────────────────────//
     //----- Private helpers -----
 
     /**
      * @brief Returns how many times the hash table has been resized (rehashes).
      * @return Total number of rehash operations performed.
      */
-    [[nodiscard]] size_t rehashCount() const {
+    [[nodiscard]]
+    size_t rehashCount() const {
         return rehashCount_; ///< Direct accessor—no surprises here.
     }
 
@@ -339,7 +346,8 @@ class DoublyLinkedCircularHashMap {
      * @throws std::out_of_range if idx is not a valid bucket.
      * @return Element count of the bucket at index idx.
      */
-    [[nodiscard]] size_t bucketSize(size_t idx) const {
+    [[nodiscard]]
+    size_t bucketSize(size_t idx) const {
         if (idx >= htBaseVector_.size()) {
             // Guard against rogue indices—better to crash than corrupt memory.
             throw std::out_of_range("Index out of range");
@@ -351,7 +359,8 @@ class DoublyLinkedCircularHashMap {
      * @brief Fetches the largest bucket size observed.
      * @return Maximum number of entries in any single bucket.
      */
-    [[nodiscard]] size_t largestBucketSize() const {
+    [[nodiscard]]
+    size_t largestBucketSize() const {
         return maxBucketSize_; ///< Handy for diagnostics or tuning load factor.
     }
 
@@ -359,7 +368,8 @@ class DoublyLinkedCircularHashMap {
      * @brief Retrieves the index of the bucket that currently holds the most elements.
      * @return Index of the largest bucket, or SIZE_MAX if map is empty.
      */
-    [[nodiscard]] size_t largestBucketIdx() const {
+    [[nodiscard]]
+    size_t largestBucketIdx() const {
         return largestBucketIdx_; ///< SIZE_MAX signals “no buckets yet.”
     }
 
@@ -367,19 +377,21 @@ class DoublyLinkedCircularHashMap {
      * @brief Provides read-only access to all bucket sizes.
      * @return A const reference to the vector of per-bucket element counts.
      */
-    [[nodiscard]] const std::vector<size_t> &bucketSizes() const {
+    [[nodiscard]]
+    const std::vector<size_t> &bucketSizes() const {
         return bucketSizes_; ///< Useful for monitoring distribution.
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Hashing and bucket management functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Hashing and bucket management functions -----
 
     /**
      * @brief Computes which bucket a given key belongs in.
      * @param key The key whose bucket we want.
      * @return Index in htBaseVector_ after hashing and modulo.
      */
-    [[nodiscard]] size_t bucketIndex_(const Key &key) const {
+    [[nodiscard]]
+    size_t bucketIndex_(const Key &key) const {
         // Hash + modulo ensures uniform spread and wraparound.
         return hashFunc_(key) % htBaseVector_.size();
     }
@@ -404,7 +416,7 @@ class DoublyLinkedCircularHashMap {
      * largestBucketIdx_.
      */
     void bucketInsert_(Node *node) {
-        auto idx = bucketIndex_(node->key_);
+        auto idx   = bucketIndex_(node->key_);
         Node *head = htBaseVector_[idx];
         if (!head) {
             // Empty bucket → node stands alone.
@@ -412,15 +424,15 @@ class DoublyLinkedCircularHashMap {
             node->hashNext_ = node->hashPrev_ = nullptr;
         } else {
             // Prepend node to existing chain.
-            node->hashNext_ = head;
-            head->hashPrev_ = node;
-            node->hashPrev_ = nullptr;
+            node->hashNext_    = head;
+            head->hashPrev_    = node;
+            node->hashPrev_    = nullptr;
             htBaseVector_[idx] = node;
         }
         ++bucketSizes_[idx]; // Keep the count honest.
         // Track maximum chain length.
         if (bucketSizes_[idx] > maxBucketSize_) {
-            maxBucketSize_ = bucketSizes_[idx];
+            maxBucketSize_    = bucketSizes_[idx];
             largestBucketIdx_ = idx;
         }
     }
@@ -455,19 +467,19 @@ class DoublyLinkedCircularHashMap {
 
         // If we just shrank the largest bucket, recompute the max.
         if (idx == largestBucketIdx_ && bucketSizes_[idx] < maxBucketSize_) {
-            maxBucketSize_ = 0;
+            maxBucketSize_    = 0;
             largestBucketIdx_ = SIZE_MAX;
             for (size_t i = 0; i < htBaseVector_.size(); ++i) {
                 if (bucketSizes_[i] > maxBucketSize_) {
-                    maxBucketSize_ = bucketSizes_[i];
+                    maxBucketSize_    = bucketSizes_[i];
                     largestBucketIdx_ = i;
                 }
             }
         }
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Circular list management functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Circular list management functions -----
 
     /**
      * @brief Inserts a node into the circular list immediately after `where`.
@@ -477,10 +489,10 @@ class DoublyLinkedCircularHashMap {
      * Updates prev/next pointers. If we link after the tail, tail_ is bumped.
      */
     void linkAfter_(Node *where, Node *node) {
-        node->prev_ = where;
-        node->next_ = where->next_;
+        node->prev_         = where;
+        node->next_         = where->next_;
         where->next_->prev_ = node;
-        where->next_ = node;
+        where->next_        = node;
         if (where == tail_) {
             tail_ = node; // new end of list
         }
@@ -494,10 +506,10 @@ class DoublyLinkedCircularHashMap {
      * Updates prev/next pointers. If we link before the head, head_ is bumped.
      */
     void linkBefore_(Node *where, Node *node) {
-        node->next_ = where;
-        node->prev_ = where->prev_;
+        node->next_         = where;
+        node->prev_         = where->prev_;
         where->prev_->next_ = node;
-        where->prev_ = node;
+        where->prev_        = node;
         if (where == head_) {
             head_ = node; // new front of list
         }
@@ -520,8 +532,8 @@ class DoublyLinkedCircularHashMap {
         }
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Rehashing and resizing functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Rehashing and resizing functions -----
 
     /**
      * @brief Resizes the bucket array, rehashing every element.
@@ -534,7 +546,7 @@ class DoublyLinkedCircularHashMap {
         std::vector<Node *> newTable(newBucketCount, nullptr);
         htBaseVector_.swap(newTable);
         bucketSizes_.assign(newBucketCount, 0);
-        maxBucketSize_ = 0;
+        maxBucketSize_    = 0;
         largestBucketIdx_ = SIZE_MAX;
 
         if (head_) {
@@ -548,8 +560,8 @@ class DoublyLinkedCircularHashMap {
         ++rehashCount_; // document that we rehashed
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Static Utilities -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Static Utilities -----
 
     // ----- Pointer walking functions -----
 
@@ -582,7 +594,7 @@ class DoublyLinkedCircularHashMap {
     static Container multi_walk(const Container &starts, int steps, bool forward) noexcept {
         Container cur = starts; // copy to avoid mutating caller data
         while (--steps) {
-            for (auto &n: cur) {
+            for (auto &n : cur) {
                 __builtin_prefetch(forward ? n->next_ : n->prev_, 0, 1);
                 n = forward ? n->next_ : n->prev_;
             }
@@ -590,9 +602,31 @@ class DoublyLinkedCircularHashMap {
         return cur;
     }
 
+    // ───────────────────────────────────────────────────────────────────────────//
+
+    //----- Helper functions for move assignment and move construction -----
+
+    /**
+     * @brief Steals the contents of another map, leaving it empty.
+     * @param src Source map to steal from.
+     *
+     * Transfers ownership of all internal data structures. The source map
+     * is left in a valid but empty state.
+     */
+    void steal_from(DoublyLinkedCircularHashMap &&src) noexcept {
+        htBaseVector_  = std::move(src.htBaseVector_);
+        bucketSizes_   = std::move(src.bucketSizes_);
+        head_          = std::exchange(src.head_, nullptr);
+        tail_          = std::exchange(src.tail_, nullptr);
+        size_          = std::exchange(src.size_, 0);
+        maxLoadFactor_ = src.maxLoadFactor_;
+        hashFunc_      = std::move(src.hashFunc_);
+        keyEqFunc_     = std::move(src.keyEqFunc_);
+    }
+
 public:
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Constructors and destructors -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Constructors and destructors -----
 
     /**
      * @brief Constructs a new DoublyLinkedCircularHashMap with custom parameters.
@@ -606,21 +640,21 @@ public:
      * @param keyEqFunc      Equality comparator for keys (default: std::equal_to<Key>).
      * @param alloc          Allocator for Node objects (default: std::allocator<Node>).
      */
-    explicit DoublyLinkedCircularHashMap(
-        size_t initBuckets = 16,
-        const double maxLoadFactor = 1.0,
-        std::function<size_t(const Key &)> hashFunc = std::hash<Key>(),
-        std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>(),
-        const Alloc &alloc = Alloc{}
-    )
-        : alloc_(alloc), // all buckets start empty
-          htBaseVector_(initBuckets, nullptr), // track 0 elements per bucket
-          bucketSizes_(initBuckets, 0), // empty list → no head
-          head_(nullptr), // empty list → no tail
-          tail_(nullptr), // store user’s max load factor
-          maxLoadFactor_(maxLoadFactor), // move-in hash functor
-          hashFunc_(std::move(hashFunc)), // move-in equality functor
-          keyEqFunc_(std::move(keyEqFunc)) // store allocator
+    explicit DoublyLinkedCircularHashMap(size_t initBuckets                                      = 16,
+                                         const double maxLoadFactor                              = 1.0,
+                                         std::function<size_t(const Key &)> hashFunc             = std::hash<Key>(),
+                                         std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>(),
+                                         const Alloc &alloc                                      = Alloc {})
+        : alloc_(alloc),
+          nodeAlloc_(alloc), // all buckets start empty
+          sizeAlloc_(alloc),
+          htBaseVector_(initBuckets, nullptr, nodeAlloc_), // track 0 elements per bucket
+          bucketSizes_(initBuckets, 0, sizeAlloc_),        // empty list → no head
+          head_(nullptr),                                  // empty list → no tail
+          tail_(nullptr),                                  // store user’s max load factor
+          maxLoadFactor_(maxLoadFactor),                   // move-in hash functor
+          hashFunc_(std::move(hashFunc)),                  // move-in equality functor
+          keyEqFunc_(std::move(keyEqFunc))                 // empty map → no rehashes yet
     {
         // Nothing else to do here—size_ and rehashCount_ default to 0.
     }
@@ -635,8 +669,8 @@ public:
         clear(); // delete every node, reset size_ to zero, clear buckets
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Copy constructors and assignment -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Copy constructors and assignment -----
 
     /**
      * @brief Copy constructor: deep-copies another map’s contents.
@@ -648,13 +682,16 @@ public:
      * @param other Map to copy from.
      */
     DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other)
-        : htBaseVector_(other.htBaseVector_.size(), nullptr), // new empty buckets
-          head_(nullptr), // list will be rebuilt
+        : alloc_(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.alloc_)), // copy allocator
+          nodeAlloc_(alloc_), // rebind from *our* alloc_
+          sizeAlloc_(alloc_),
+          htBaseVector_(other.htBaseVector_.size(), nullptr, nodeAlloc_), // new empty buckets
+          bucketSizes_(other.bucketSizes_.size(), 0, alloc_),             // new empty buckets
+          head_(nullptr),                                                 // list will be rebuilt
           tail_(nullptr),
           maxLoadFactor_(other.maxLoadFactor_), // copy load factor
-          hashFunc_(other.hashFunc_), // copy functor
-          keyEqFunc_(other.keyEqFunc_) // copy comparator
-    {
+          hashFunc_(other.hashFunc_),           // copy functor
+          keyEqFunc_(other.keyEqFunc_) {
         if (other.head_) {
             Node *cur = other.head_;
             do {
@@ -663,6 +700,21 @@ public:
                 cur = cur->next_;
             } while (cur != other.head_);
         }
+    }
+
+    DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other, const Alloc &alloc)
+        : alloc_(alloc),                                                  // use new allocator
+          nodeAlloc_(alloc),                                              // use new node allocator
+          sizeAlloc_(alloc),                                              // use new size allocator
+          htBaseVector_(other.htBaseVector_.size(), nullptr, nodeAlloc_), // new empty buckets
+          bucketSizes_(other.bucketSizes_.size(), 0, sizeAlloc_),         // new empty buckets
+          head_(nullptr),                                                 // list will be rebuilt
+          tail_(nullptr),
+          maxLoadFactor_(other.maxLoadFactor_), // copy load factor
+          hashFunc_(other.hashFunc_),           // copy functor
+          keyEqFunc_(other.keyEqFunc_)          // copy equality functor
+    {
+        *this = other;
     }
 
     /**
@@ -675,48 +727,93 @@ public:
      * @return Reference to *this.
      */
     DoublyLinkedCircularHashMap &operator=(const DoublyLinkedCircularHashMap &other) {
-        if (this != &other) {
-            clear(); // free existing nodes and reset state
-            // Resize buckets to match ’other’
-            htBaseVector_.assign(other.htBaseVector_.size(), nullptr);
-            maxLoadFactor_ = other.maxLoadFactor_;
-            hashFunc_ = other.hashFunc_;
-            keyEqFunc_ = other.keyEqFunc_;
-            // Rebuild list and hash table
-            if (other.head_) {
-                Node *cur = other.head_;
-                do {
-                    insert(cur->key_, cur->value_);
-                    cur = cur->next_;
-                } while (cur != other.head_);
-            }
+        if (this == &other) {
+            return *this; // self-assignment check
         }
-        return *this;
+
+        // 1. Possibly copy-assign allocators
+        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value) {
+            alloc_     = other.alloc_;
+            nodeAlloc_ = node_allocator_t(alloc_);
+            sizeAlloc_ = size_t_allocator_t(alloc_);
+        }
+
+        // 2. Clear existing nodes and reset state
+        clear(); // free existing nodes and reset state
+
+        // Recreate the buckets with the correct allocator
+        htBaseVector_  = std::vector<Node *, node_allocator_t>(other.htBaseVector_.size(), nullptr, nodeAlloc_);
+        bucketSizes_   = std::vector<size_t, size_t_allocator_t>(other.bucketSizes_.size(), 0, sizeAlloc_);
+        maxLoadFactor_ = other.maxLoadFactor_; // copy load factor
+        hashFunc_      = other.hashFunc_;      // copy hash functor
+        keyEqFunc_     = other.keyEqFunc_;     // copy equality functor
+
+        // 3. Reinsert all elements from the other map
+        if (other.head_) {
+            Node *cur = other.head_;
+            do {
+                // insert() handles both hashing and list-linking
+                insert(cur->key_, cur->value_);
+                cur = cur->next_;
+            } while (cur != other.head_);
+        }
+        return *this; // return self-reference
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Move constructors and assignment -----
+
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Move constructors and assignment -----
 
     /**
-     * @brief Move constructor: takes ownership of resources from another map.
+     * @brief Move constructor (Base: No allocator extension): takes ownership of resources from another map.
      *
      * Transfers bucket array, list pointers, size, and functors. Leaves other map
      * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
      *
      * @param other Map to move from.
      */
-    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other) noexcept
-        : htBaseVector_(std::move(other.htBaseVector_)), // steal bucket vector
-          head_(other.head_), // copy head pointer
-          tail_(other.tail_), // copy tail pointer
-          size_(other.size_), // copy size count
-          maxLoadFactor_(other.maxLoadFactor_), // copy load factor
-          hashFunc_(std::move(other.hashFunc_)), // move-in hash functor
-          keyEqFunc_(std::move(other.keyEqFunc_)) // move-in equality functor
+    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other)
+            noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
+
     {
-        // Reset other to empty state so its destructor is safe.
-        other.head_ = other.tail_ = nullptr;
-        other.size_ = 0;
+        if constexpr (std::allocator_traits<Alloc>::is_always_equal::value) {
+            steal_from(std::move(other)); // steal contents
+        } else if (alloc_ == other.alloc_) {
+            steal_from(std::move(other)); // steal contents
+        } else {
+            // If allocators differ, we need to deep copy the nodes
+            reserve(other.size_); // allocate new buckets
+            for (auto &[k, v] : other) {
+                insert(std::move(k), std::move(v)); // copy each element
+            }
+            other.clear(); // clear the other map
+        }
+    }
+
+    /**
+     * @brief Move constructor with custom allocator: takes ownership of resources from another map.
+     *
+     * Transfers bucket array, list pointers, size, and functors. Leaves other map
+     * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
+     *
+     * @param other Map to move from.
+     * @param alloc New allocator for this map.
+     */
+    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other, const Alloc &alloc)
+        : alloc_(alloc),     // use new allocator
+          nodeAlloc_(alloc), // use new node allocator
+          sizeAlloc_(alloc)  // use new size allocator
+    {
+        if (alloc_ == other.alloc_ || std::allocator_traits<Alloc>::is_always_equal::value) {
+            steal_from(std::move(other)); // steal contents
+        } else {
+            // If allocators differ, we need to deep copy the nodes
+            reserve(other.size_); // allocate new buckets
+            for (auto &[k, v] : other) {
+                insert(std::move(k), std::move(v)); // copy each element
+            }
+            other.clear(); // clear the other map
+        }
     }
 
     /**
@@ -733,8 +830,9 @@ public:
         return *this;
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Observers -----
+
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Observers -----
 
     /**
      * @brief Check whether the map contains no elements.
@@ -743,7 +841,8 @@ public:
      *
      * @return true if size_ == 0, false otherwise.
      */
-    [[nodiscard]] bool empty() const {
+    [[nodiscard]]
+    bool empty() const {
         return size_ == 0; // Fast path: compare against zero
     }
 
@@ -752,7 +851,8 @@ public:
      *
      * @return Current element count (size_).
      */
-    [[nodiscard]] size_t size() const {
+    [[nodiscard]]
+    size_t size() const {
         return size_; // Directly return the counter
     }
 
@@ -763,7 +863,8 @@ public:
      *
      * @return A double in [0, ∞); typically you aim to keep this ≤ maxLoadFactor_.
      */
-    [[nodiscard]] double loadFactor() const {
+    [[nodiscard]]
+    double loadFactor() const {
         return static_cast<double>(size_) / htBaseVector_.size(); // dynamic measure of fullness
     }
 
@@ -772,7 +873,8 @@ public:
      *
      * @return Size of htBaseVector_ (bucket count).
      */
-    [[nodiscard]] size_t bucketCount() const {
+    [[nodiscard]]
+    size_t bucketCount() const {
         return htBaseVector_.size(); // slots available for chaining
     }
 
@@ -783,7 +885,8 @@ public:
      *
      * @return The stored maxLoadFactor_.
      */
-    [[nodiscard]] double maxLoadFactor() const noexcept {
+    [[nodiscard]]
+    double maxLoadFactor() const noexcept {
         return maxLoadFactor_; // no side effects
     }
 
@@ -795,14 +898,16 @@ public:
     void maxLoadFactor(const double newMaxLoadFactor) {
         maxLoadFactor_ = newMaxLoadFactor; // update threshold
         // If we're already above the new threshold, redistribute now
-        if (const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor)); need > bucketCount()) {
+        if (const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor));
+            need > bucketCount())
+        {
             rehash_(bucketCount());
         }
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Capacity -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Capacity -----
 
     /**
      * @brief Reserve capacity for at least newSize elements without rehashing.
@@ -813,10 +918,8 @@ public:
      * @param newSize Minimum number of elements to accommodate.
      */
     void reserve(const size_t newSize) {
-        const size_t newBucketCount = std::max<size_t>(
-            1,
-            static_cast<size_t>(std::ceil(static_cast<double>(newSize) / maxLoadFactor_))
-        );
+        const size_t newBucketCount =
+                std::max<size_t>(1, static_cast<size_t>(std::ceil(static_cast<double>(newSize) / maxLoadFactor_)));
         if (newBucketCount > bucketCount()) {
             // Only rehash if we need more buckets
             rehash_(newBucketCount);
@@ -832,7 +935,8 @@ public:
      * @param newSize New number of buckets.
      */
     void rehash(const size_t newSize) {
-        if (newSize == bucketCount()) return;
+        if (newSize == bucketCount())
+            return;
         rehash_(newSize); // rehash to new size
     }
 
@@ -848,18 +952,18 @@ public:
             Node *cur = head_->next_;
             while (cur != head_) {
                 Node *nxt = cur->next_;
-                std::allocator_traits<node_allocator_t>::destroy(alloc_, cur); // free each node
-                std::allocator_traits<node_allocator_t>::deallocate(alloc_, cur, 1); // deallocate
+                std::allocator_traits<node_allocator_t>::destroy(nodeAlloc_, cur);       // free each node
+                std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, cur, 1); // deallocate
                 cur = nxt;
             }
             delete head_; // finally delete the original head
         }
         // Reset internal state
         head_ = tail_ = nullptr;
-        size_ = 0;
+        size_         = 0;
         std::fill(htBaseVector_.begin(), htBaseVector_.end(), nullptr);
         std::ranges::fill(bucketSizes_, 0);
-        maxBucketSize_ = 0;
+        maxBucketSize_    = 0;
         largestBucketIdx_ = SIZE_MAX;
     }
 
@@ -870,18 +974,16 @@ public:
      * If this differs from current bucketCount(), triggers a rehash.
      */
     void minimize_size() {
-        const size_t minSize = std::max<size_t>(
-            1,
-            static_cast<size_t>(std::ceil(static_cast<double>(size_) / maxLoadFactor_))
-        );
+        const size_t minSize =
+                std::max<size_t>(1, static_cast<size_t>(std::ceil(static_cast<double>(size_) / maxLoadFactor_)));
         if (minSize != bucketCount()) {
             rehash_(minSize);
         }
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Modifiers -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Modifiers -----
 
     /**
      * @brief Insert or update a key/value pair at a specific position.
@@ -914,13 +1016,8 @@ public:
         }
 
         // 3) Create a fresh node (self-linked in list)
-        Node *node = std::allocator_traits<node_allocator_t>::allocate(alloc_, 1);
-        std::allocator_traits<node_allocator_t>::construct(
-            alloc_,
-            node,
-            std::move(key),
-            std::move(value)
-        );
+        Node *node = std::allocator_traits<node_allocator_t>::allocate(nodeAlloc_, 1);
+        std::allocator_traits<node_allocator_t>::construct(nodeAlloc_, node, std::move(key), std::move(value));
 
         // 4) Splice into the circular doubly-linked list
         if (where == -1 || where == intSize) {
@@ -982,7 +1079,7 @@ public:
      */
     bool remove(const Key &key) {
         size_t idx = bucketIndex_(key);
-        Node *cur = htBaseVector_[idx];
+        Node *cur  = htBaseVector_[idx];
         while (cur) {
             if (keyEqFunc_(cur->key_, key)) {
                 // Detach from hash chain
@@ -995,9 +1092,9 @@ public:
                     unlink_(cur);
                 }
 
-                std::allocator_traits<node_allocator_t>::destroy(alloc_, cur); // Free the node
-                std::allocator_traits<node_allocator_t>::deallocate(alloc_, cur, 1); // Deallocate memory
-                --size_; // decrement count
+                std::allocator_traits<node_allocator_t>::destroy(nodeAlloc_, cur);       // Free the node
+                std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, cur, 1); // Deallocate memory
+                --size_;                                                                 // decrement count
                 return true;
             }
             cur = cur->hashNext_;
@@ -1005,8 +1102,8 @@ public:
         return false; // key not found
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Element Access -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Element Access -----
 
     /**
      * @brief Provides direct access to the mapped value, inserting a default if missing.
@@ -1022,7 +1119,7 @@ public:
         if (Value *pv = find_ptr(key)) {
             return *pv; // Fast path: key already present
         }
-        insert(key, Value{}); // Splice in a default-constructed Value
+        insert(key, Value {}); // Splice in a default-constructed Value
         // Note: default Value may not be thrilling, but it gets the job done
         return *find_ptr(key); // Guaranteed to succeed now
     }
@@ -1070,8 +1167,7 @@ public:
      * @return Reference to the mapped value.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     Value &at(const K2 &key) {
         if (auto p = find_ptr(key)) {
             return *p;
@@ -1088,8 +1184,7 @@ public:
      * @return Const reference to the mapped value.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     const Value &at(const K2 &key) const {
         if (auto p = find_ptr(key)) {
             return *p;
@@ -1098,8 +1193,8 @@ public:
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Lookup and find functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Lookup and find functions -----
 
     /**
      * @brief Core lookup: find the Node holding a given key, or nullptr.
@@ -1134,8 +1229,7 @@ public:
      * @return Pointer to the Node if found, nullptr otherwise.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     Node *find_node(const K2 &key) {
         size_t idx = bucketIndex_(key);
         for (Node *cur = htBaseVector_[idx]; cur; cur = cur->hashNext_) {
@@ -1150,8 +1244,7 @@ public:
      * @brief Const heterogeneous lookup overload.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     const Node *find_node(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_node(key);
     }
@@ -1182,8 +1275,7 @@ public:
      * @brief Heterogeneous find_ptr() for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     Value *find_ptr(const K2 &key) {
         if (Node *n = find_node(key)) {
             return &n->value_;
@@ -1195,8 +1287,7 @@ public:
      * @brief Const heterogeneous find_ptr() overload.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     const Value *find_ptr(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_ptr(key);
     }
@@ -1207,7 +1298,8 @@ public:
      * @param key The key to test.
      * @return true if find_ptr(key) != nullptr, false otherwise.
      */
-    [[nodiscard]] bool contains(const Key &key) const {
+    [[nodiscard]]
+    bool contains(const Key &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_ptr(key) != nullptr;
     }
 
@@ -1215,14 +1307,14 @@ public:
      * @brief Heterogeneous contains() for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
-    [[nodiscard]] bool contains(const K2 &key) const {
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+    [[nodiscard]]
+    bool contains(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_ptr(key) != nullptr;
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Functor configuration -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Functor configuration -----
 
     /**
      * @brief Replace the hash‐functor and immediately rehash all entries.
@@ -1236,7 +1328,7 @@ public:
     template<class HF>
     void setHashFunction(HF &&h) {
         hashFunc_ = std::forward<HF>(h); // swap in new hash
-        rehash_(htBaseVector_.size()); // rebuild buckets under new hash
+        rehash_(htBaseVector_.size());   // rebuild buckets under new hash
     }
 
     /**
@@ -1254,8 +1346,8 @@ public:
         keyEqFunc_ = std::forward<KEF>(k); // swap in new comparator
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Iterator Support -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Iterator Support -----
 
     // Forward declare const_iterator
     struct const_iterator;
@@ -1268,27 +1360,29 @@ public:
      */
     struct iterator {
         using iterator_category = std::bidirectional_iterator_tag; /**< STL category tag. */
-        using value_type = std::pair<const Key &, Value &>; /**< Dereferenced type. */
-        using reference = value_type; /**< Reference alias. */
-        using difference_type = std::ptrdiff_t; /**< Signed distance. */
-        using pointer = void; /**< Pointer unsupported. */
+        using value_type        = std::pair<const Key &, Value &>; /**< Dereferenced type. */
+        using reference         = value_type;                      /**< Reference alias. */
+        using difference_type   = std::ptrdiff_t;                  /**< Signed distance. */
+        using pointer           = void;                            /**< Pointer unsupported. */
 
-        Node *cur; /**< Current node; nullptr means end(). */
+        Node *cur;                              /**< Current node; nullptr means end(). */
         const DoublyLinkedCircularHashMap *map; /**< Owning map, for head_/tail_. */
 
         /**
          * @brief Default-construct an end() iterator.
          */
-        iterator() noexcept : cur(nullptr), map(nullptr) {
-        }
+        iterator() noexcept
+            : cur(nullptr),
+              map(nullptr) {}
 
         /**
          * @brief Construct an iterator at the given node in the given map.
          * @param node Starting node (nullptr for end()).
          * @param m    Pointer to the map instance.
          */
-        iterator(Node *node, const auto *m) : cur(node), map(m) {
-        }
+        iterator(Node *node, const auto *m)
+            : cur(node),
+              map(m) {}
 
         /**
          * @brief Prefix increment: advance to the next element.
@@ -1342,30 +1436,22 @@ public:
          * @param other Other iterator.
          * @return true if both point to the same element (or both end()).
          */
-        bool operator==(const iterator &other) const {
-            return cur == other.cur;
-        }
+        bool operator==(const iterator &other) const { return cur == other.cur; }
 
         /**
          * @brief Compare two iterators for inequality.
          * @param other Other iterator.
          * @return true if they point to different elements.
          */
-        bool operator!=(const iterator &other) const {
-            return cur != other.cur;
-        }
+        bool operator!=(const iterator &other) const { return cur != other.cur; }
 
         /**
          * @brief Dereference to access the key/value pair.
          * @return std::pair<const Key&, Value&> of the current element.
          */
-        reference operator*() const {
-            return {cur->key_, cur->value_};
-        }
+        reference operator*() const { return {cur->key_, cur->value_}; }
 
-        explicit operator const_iterator() const noexcept {
-            return const_iterator(cur, this);
-        }
+        explicit operator const_iterator() const noexcept { return const_iterator(cur, this); }
     };
 
     /**s
@@ -1374,28 +1460,30 @@ public:
      * Identical behavior to iterator, but yields const Value&.
      */
     struct const_iterator {
-        using iterator_category = std::bidirectional_iterator_tag; /**< STL category tag. */
-        using value_type = std::pair<const Key &, const Value &>; /**< Dereferenced type. */
-        using reference = value_type; /**< Reference alias. */
-        using difference_type = std::ptrdiff_t; /**< Signed distance. */
-        using pointer = void; /**< Pointer unsupported. */
+        using iterator_category = std::bidirectional_iterator_tag;       /**< STL category tag. */
+        using value_type        = std::pair<const Key &, const Value &>; /**< Dereferenced type. */
+        using reference         = value_type;                            /**< Reference alias. */
+        using difference_type   = std::ptrdiff_t;                        /**< Signed distance. */
+        using pointer           = void;                                  /**< Pointer unsupported. */
 
-        const Node *cur; /**< Current node; nullptr for end(). */
+        const Node *cur;                        /**< Current node; nullptr for end(). */
         const DoublyLinkedCircularHashMap *map; /**< Owning map pointer. */
 
         /**
          * @brief Default-construct an end() iterator.
          */
-        const_iterator() noexcept : cur(nullptr), map(nullptr) {
-        }
+        const_iterator() noexcept
+            : cur(nullptr),
+              map(nullptr) {}
 
         /**
          * @brief Construct a const_iterator at the given node in the given map.
          * @param node Starting node (nullptr for end()).
          * @param m    Pointer to the map instance.
          */
-        const_iterator(const Node *node, const auto *m) : cur(node), map(m) {
-        }
+        const_iterator(const Node *node, const auto *m)
+            : cur(node),
+              map(m) {}
 
         /**
          * @brief Prefix increment: advance to the next element.
@@ -1449,117 +1537,87 @@ public:
          * @param other Other iterator.
          * @return true if both point to the same element (or both end()).
          */
-        bool operator==(const const_iterator &other) const {
-            return cur == other.cur;
-        }
+        bool operator==(const const_iterator &other) const { return cur == other.cur; }
 
         /**
          * @brief Compare two const_iterators for inequality.
          * @param other Other iterator.
          * @return true if they point to different elements.
          */
-        bool operator!=(const const_iterator &other) const {
-            return cur != other.cur;
-        }
+        bool operator!=(const const_iterator &other) const { return cur != other.cur; }
 
         /**
          * @brief Dereference to access the key/value pair.
          * @return std::pair<const Key&, const Value&> of the current element.
          */
-        reference operator*() const {
-            return {cur->key_, cur->value_};
-        }
+        reference operator*() const { return {cur->key_, cur->value_}; }
     };
 
     // Aliases for reverse iteration
-    using reverse_iterator = std::reverse_iterator<iterator>;
+    using reverse_iterator       = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     /**
      * @brief Begin iterator: points to the first element (head_).
      * @return iterator at head_, or end() if empty.
      */
-    iterator begin() {
-        return iterator(head_, this);
-    }
+    iterator begin() { return iterator(head_, this); }
 
     /**
      * @brief End iterator: sentinel one past the last element.
      * @return iterator(cur = nullptr).
      */
-    iterator end() {
-        return iterator(nullptr, this);
-    }
+    iterator end() { return iterator(nullptr, this); }
 
     /**
      * @brief Const begin: points to first element in const map.
      */
-    const_iterator begin() const {
-        return const_iterator(head_, this);
-    }
+    const_iterator begin() const { return const_iterator(head_, this); }
 
     /**
      * @brief Const end: sentinel one past the last element.
      */
-    const_iterator end() const {
-        return const_iterator(nullptr, this);
-    }
+    const_iterator end() const { return const_iterator(nullptr, this); }
 
     /**
      * @brief Const begin alias.
      */
-    const_iterator cbegin() const {
-        return begin();
-    }
+    const_iterator cbegin() const { return begin(); }
 
     /**
      * @brief Const end alias.
      */
-    const_iterator cend() const {
-        return end();
-    }
+    const_iterator cend() const { return end(); }
 
     /**
      * @brief Reverse begin: wraps rbegin() to last element.
      */
-    reverse_iterator rbegin() {
-        return reverse_iterator(end());
-    }
+    reverse_iterator rbegin() { return reverse_iterator(end()); }
 
     /**
      * @brief Reverse end: past-the-first-element sentinel.
      */
-    reverse_iterator rend() {
-        return reverse_iterator(begin());
-    }
+    reverse_iterator rend() { return reverse_iterator(begin()); }
 
     /**
      * @brief Const reverse begin.
      */
-    const_reverse_iterator rbegin() const {
-        return const_reverse_iterator(end());
-    }
+    const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
 
     /**
      * @brief Const reverse end.
      */
-    const_reverse_iterator rend() const {
-        return const_reverse_iterator(begin());
-    }
+    const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
 
     /**
      * @brief Const reverse begin alias.
      */
-    const_reverse_iterator crbegin() const {
-        return rbegin();
-    }
+    const_reverse_iterator crbegin() const { return rbegin(); }
 
     /**
      * @brief Const reverse end alias.
      */
-    const_reverse_iterator crend() const {
-        return rend();
-    }
+    const_reverse_iterator crend() const { return rend(); }
 
     /**
      * @brief Erase element at iterator position and return next iterator.
@@ -1575,9 +1633,9 @@ public:
         if (it == end()) {
             return it; // nothing to do
         }
-        Node *node = it.cur;
+        Node *node     = it.cur;
         Node *nextNode = node->next_;
-        Node *oldHead = head_;
+        Node *oldHead  = head_;
         remove(node->key_);
 
         // If we just deleted the only element, or if nextNode wrapped back to head, we're at end():
@@ -1589,8 +1647,8 @@ public:
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- STL-like find functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- STL-like find functions -----
 
     /**
      * @brief STL-style lookup: returns an iterator to the element with the given key.
@@ -1627,9 +1685,7 @@ public:
      * @param key Key to search for.
      * @return const_iterator to the element, or end() if not found.
      */
-    const_iterator cfind(const Key &key) const {
-        return find(key);
-    }
+    const_iterator cfind(const Key &key) const { return find(key); }
 
     /**
      * @brief Heterogeneous STL-style find() for key-like types.
@@ -1642,8 +1698,7 @@ public:
      * @return iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     iterator find(const K2 &key) {
         if (Node *found = find_node(key)) {
             return iterator(found, this);
@@ -1659,8 +1714,7 @@ public:
      * @return const_iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     const_iterator find(const K2 &key) const {
         if (const Node *found = find_node(key)) {
             return const_iterator(found, this);
@@ -1676,14 +1730,13 @@ public:
      * @return const_iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     const_iterator cfind(const K2 &key) const {
         return find(key);
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- FIFO / Queue-like operations -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- FIFO / Queue-like operations -----
 
     /**
      * @brief Enqueue: append a key/value pair at the back of the sequence.
@@ -1739,14 +1792,14 @@ public:
      * @return Pointer to the old front value (now dangling after removal).
      */
     Value *pop_front() {
-        Value *pv = front(); // grab address before removal
+        Value *pv = front();             // grab address before removal
         remove(orderedGetNode(0)->key_); // remove head element
-        return pv; // pointer now invalid
+        return pv;                       // pointer now invalid
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- LIFO / Stack-like operations -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- LIFO / Stack-like operations -----
 
     /**
      * @brief Push element onto stack front (same as enqueue front).
@@ -1787,14 +1840,14 @@ public:
      * @return Pointer to the old top value (now dangling after removal).
      */
     Value *pop_back() {
-        Value *pv = bottom(); // grab bottom (since top==front)
+        Value *pv = bottom();             // grab bottom (since top==front)
         remove(orderedGetNode(-1)->key_); // remove last element
-        return pv; // pointer now invalid
+        return pv;                        // pointer now invalid
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Advanced Operations -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Advanced Operations -----
 
     // ----- Ordered getters -----
     /**
@@ -1814,7 +1867,7 @@ public:
             return nullptr; // nothing to return in empty map
 
         const int intSize = static_cast<int>(size_);
-        int mod_idx = idx % intSize; // step 1: wrap index into [−size_..size_)
+        int mod_idx       = idx % intSize; // step 1: wrap index into [−size_..size_)
 
         if (mod_idx < 0) // step 2: normalize negative
             mod_idx += intSize;
@@ -1826,35 +1879,32 @@ public:
 
         if (from) {
             // If user specified a start node, walk relative to that
-            cur = from;
+            cur   = from;
             steps = start_at_tail ? intSize - mod_idx : mod_idx;
         } else if (!start_at_tail) {
             // closer to head_: walk forward mod_idx steps
-            cur = head_;
+            cur   = head_;
             steps = mod_idx;
         } else {
             // closer to tail_: walk backward (size_ − mod_idx − 1) steps
-            cur = tail_;
+            cur   = tail_;
             steps = intSize - mod_idx - 1;
         }
 
         if (debug) {
             const char *origin = from ? "from" : (start_at_tail ? "tail" : "head");
-            std::cout
-                    << "orderedGetNode(" << idx << "): reduced idx=" << mod_idx
-                    << ", starting at " << origin << ", steps=" << steps << "\n";
+            std::cout << "orderedGetNode(" << idx << "): reduced idx=" << mod_idx << ", starting at " << origin
+                      << ", steps=" << steps << "\n";
         }
 
         // step 4: do the walk
         for (size_t i = 0; i < steps; ++i) {
-            cur = start_at_tail
-                      ? cur->prev_ // backward
-                      : cur->next_; // forward
+            cur = start_at_tail ? cur->prev_  // backward
+                                : cur->next_; // forward
         }
 
         if (debug) {
-            std::cout << "  landed on key=" << cur->key_
-                    << ", value=" << cur->value_ << "\n";
+            std::cout << "  landed on key=" << cur->key_ << ", value=" << cur->value_ << "\n";
         }
         return cur; // step 5: return result
     }
@@ -1896,26 +1946,28 @@ public:
         if (n1->next_ == n2) {
             Node *p = n1->prev_, *q = n2->next_;
             // relink to: p → n2 → n1 → q
-            p->next_ = n2;
+            p->next_  = n2;
             n2->prev_ = p;
             n2->next_ = n1;
             n1->prev_ = n2;
             n1->next_ = q;
-            q->prev_ = n1;
+            q->prev_  = n1;
         }
         // Case B: n2 → n1 adjacency
-        else if (n2->next_ == n1) {
+        else if (n2->next_ == n1)
+        {
             Node *p = n2->prev_, *q = n1->next_;
             // relink to: p → n1 → n2 → q
-            p->next_ = n1;
+            p->next_  = n1;
             n1->prev_ = p;
             n1->next_ = n2;
             n2->prev_ = n1;
             n2->next_ = q;
-            q->prev_ = n2;
+            q->prev_  = n2;
         }
         // Case C: non-adjacent
-        else {
+        else
+        {
             // swap incoming neighbor pointers
             std::swap(n1->prev_->next_, n2->prev_->next_);
             std::swap(n1->next_->prev_, n2->next_->prev_);
@@ -1925,10 +1977,14 @@ public:
         }
 
         // fix head_/tail_ if we moved them
-        if (head_ == n1) head_ = n2;
-        else if (head_ == n2) head_ = n1;
-        if (tail_ == n1) tail_ = n2;
-        else if (tail_ == n2) tail_ = n1;
+        if (head_ == n1)
+            head_ = n2;
+        else if (head_ == n2)
+            head_ = n1;
+        if (tail_ == n1)
+            tail_ = n2;
+        else if (tail_ == n2)
+            tail_ = n1;
     }
 
     /**
@@ -1953,8 +2009,7 @@ public:
      * Allows swapping by any key-like type K2 that Hash and KeyEq accept.
      */
     template<typename K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void pos_swap_k(const K2 &key1, const K2 &key2) {
         Node *n1 = find_node(key1), *n2 = find_node(key2);
         if (!n1 || !n2)
@@ -1979,8 +2034,8 @@ public:
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Move operations -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Move operations -----
 
     /**
      * @brief Move a node to immediately before another node.
@@ -1995,7 +2050,7 @@ public:
         if (node == target) {
             return; // Can't move before itself
         }
-        unlink_(node); // Remove from current position
+        unlink_(node);             // Remove from current position
         linkBefore_(target, node); // Splice into new position
     }
 
@@ -2012,7 +2067,7 @@ public:
         if (node == target) {
             return; // Can't move after itself
         }
-        unlink_(node); // Remove from list
+        unlink_(node);            // Remove from list
         linkAfter_(target, node); // Insert after target
     }
 
@@ -2037,8 +2092,7 @@ public:
      * @brief Templated heterogeneous version of move_node_before_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_node_before_n_key(Node *node, const K2 &targetKey) {
         Node *target = find_node(targetKey);
         if (!target) {
@@ -2066,8 +2120,7 @@ public:
      * @brief Templated heterogeneous version of move_node_after_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_node_after_n_key(Node *node, const K2 &targetKey) {
         Node *target = find_node(targetKey);
         if (!target) {
@@ -2082,16 +2135,13 @@ public:
      * @param node      Node to move.
      * @param targetKey Key whose node will precede `node`.
      */
-    void move_node_to_key(Node *node, const Key &targetKey) {
-        move_node_before_n_key(node, targetKey);
-    }
+    void move_node_to_key(Node *node, const Key &targetKey) { move_node_before_n_key(node, targetKey); }
 
     /**
      * @brief Templated heterogeneous alias for move_node_to_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_node_to_key(Node *node, const K2 &targetKey) {
         move_node_before_n_key(node, targetKey);
     }
@@ -2129,9 +2179,7 @@ public:
     /**
      * @brief Alias: move a node to the position at the given index.
      */
-    void move_node_to_idx(Node *node, const int targetIdx) {
-        move_node_before_n_idx(node, targetIdx);
-    }
+    void move_node_to_idx(Node *node, const int targetIdx) { move_node_before_n_idx(node, targetIdx); }
 
     /**
      * @brief Move the node for a given key before a specific node.
@@ -2152,8 +2200,7 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_node.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_n_key_to_node(const K2 &key, Node *target) {
         Node *node = find_node(key);
         if (!node) {
@@ -2181,8 +2228,7 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_n_key_to_n_key(const K2 &key1, const K2 &key2) {
         Node *node = find_node(key1);
         if (!node) {
@@ -2210,8 +2256,7 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_idx.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_n_key_to_idx(const K2 &key, const int targetIdx) {
         Node *node = find_node(key);
         if (!node) {
@@ -2250,8 +2295,7 @@ public:
      * @brief Templated heterogeneous version of move_idx_to_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void move_idx_to_n_key(const int idx, const K2 &targetKey) {
         Node *node = orderedGetNode(idx);
         if (!node) {
@@ -2276,8 +2320,8 @@ public:
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Node shifting functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Node shifting functions -----
 
     /**
      * @brief Shift a specific node by a given offset in the circular list.
@@ -2336,8 +2380,7 @@ public:
      * @brief Heterogeneous-version of shift_n_key for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
-                 && std::invocable<KeyEq, const Key &, const K2 &>
+        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
     void shift_n_key(const K2 &key, const int shift) {
         Node *node = find_node(key);
         if (!node) {
@@ -2361,26 +2404,29 @@ public:
      * @param shift Offset in insertion-order positions.
      * @throws std::out_of_range if the container is empty.
      */
-    void shift_idx(const int idx, const int shift)
-    __attribute__((always_inline, hot, optimize("O3"))) {
+    void shift_idx(const int idx, const int shift) __attribute__((always_inline, hot, optimize("O3"))) {
         // 0) Fast path for zero shift
-        if (LIKELY(shift == 0)) return;
+        if (LIKELY(shift == 0))
+            return;
 
         // 0.5) Empty container check
         if (UNLIKELY(size_ == 0))
             throw std::out_of_range("Index out of range");
 
-        const int N = static_cast<int>(size_);
+        const int N      = static_cast<int>(size_);
         const int tail_i = N - 1;
 
         // 1) Compute modularized source/destination indices in [0..N-1]
         int src_mod = idx % N;
         int dst_mod = (idx + shift) % N;
-        if (src_mod < 0) src_mod += N; // normalize negative
-        if (dst_mod < 0) dst_mod += N;
+        if (src_mod < 0)
+            src_mod += N; // normalize negative
+        if (dst_mod < 0)
+            dst_mod += N;
 
         // 2) If normalized indices coincide, no move needed
-        if (LIKELY(src_mod == dst_mod)) return;
+        if (LIKELY(src_mod == dst_mod))
+            return;
 
         // 3) Distances from head_ and tail_ to src and dst
         const int src_from_head = src_mod;
@@ -2389,22 +2435,20 @@ public:
         const int dst_from_tail = tail_i - dst_mod;
 
         // 4) Choose whether to reference from source or destination first
-        const int src_walk = std::min(src_from_head, src_from_tail);
-        const int dst_walk = std::min(dst_from_head, dst_from_tail);
+        const int src_walk  = std::min(src_from_head, src_from_tail);
+        const int dst_walk  = std::min(dst_from_head, dst_from_tail);
         const bool from_src = (src_walk <= dst_walk);
 
         // 5) Decide direction and starting reference for first walk
-        const bool first_dir = from_src
-                                   ? (src_from_head <= src_from_tail)
-                                   : (dst_from_head <= dst_from_tail);
-        Node *first_ref = first_dir ? head_ : tail_;
+        const bool first_dir = from_src ? (src_from_head <= src_from_tail) : (dst_from_head <= dst_from_tail);
+        Node *first_ref      = first_dir ? head_ : tail_;
         const int first_walk = from_src ? src_walk : dst_walk;
 
         // 6) Compute remaining walk for the other index
         const int second_walk = from_src ? dst_walk : src_walk;
 
         // 7) Perform first walk
-        Node *cur = walk(first_ref, first_walk, first_dir);
+        Node *cur      = walk(first_ref, first_walk, first_dir);
         Node *src_node = from_src ? cur : nullptr;
         Node *dst_node = from_src ? nullptr : cur;
 
@@ -2414,14 +2458,14 @@ public:
             cur = walk(cur, raw_dist, first_dir);
         } else {
             // rebase from the closer end and walk
-            const bool second_dir = from_src
-                                        ? (dst_from_head <= dst_from_tail)
-                                        : (src_from_head <= src_from_tail);
-            Node *second_ref = second_dir ? head_ : tail_;
-            cur = walk(second_ref, second_walk, second_dir);
+            const bool second_dir = from_src ? (dst_from_head <= dst_from_tail) : (src_from_head <= src_from_tail);
+            Node *second_ref      = second_dir ? head_ : tail_;
+            cur                   = walk(second_ref, second_walk, second_dir);
         }
-        if (from_src) dst_node = cur;
-        else src_node = cur;
+        if (from_src)
+            dst_node = cur;
+        else
+            src_node = cur;
 
         // 9) Perform the final splice in O(1)
         if (shift > 0) {
@@ -2448,10 +2492,9 @@ public:
      * @param offset Step count to incorporate into zigzag pattern.
      * @return Signed zig-zag offset, alternating sign each `idx`.
      */
-    static std::ptrdiff_t computeZigzagOffset(const std::size_t idx,
-                                              const std::size_t offset) noexcept {
-        using S = std::make_signed_t<std::size_t>; // signed type wide enough for size_t
-        const S i = static_cast<S>(idx);
+    static std::ptrdiff_t computeZigzagOffset(const std::size_t idx, const std::size_t offset) noexcept {
+        using S     = std::make_signed_t<std::size_t>; // signed type wide enough for size_t
+        const S i   = static_cast<S>(idx);
         const S off = static_cast<S>(offset);
 
         // Compute the positive step count first, then apply alternating sign:
@@ -2476,14 +2519,10 @@ public:
      * @param r_cnt Number of right picks so far.
      * @return {leftOffset, rightOffset} as ptrdiff_t values.
      */
-    static std::pair<std::ptrdiff_t, std::ptrdiff_t>
-    computeZigzagOffsetPair(const std::size_t nth = 0,
-                            const std::size_t l_cnt = 0,
-                            const std::size_t r_cnt = 0) noexcept {
-        return {
-            computeZigzagOffset(2 * nth, l_cnt),
-            computeZigzagOffset(2 * nth + 1, r_cnt)
-        };
+    static std::pair<std::ptrdiff_t, std::ptrdiff_t> computeZigzagOffsetPair(const std::size_t nth   = 0,
+                                                                             const std::size_t l_cnt = 0,
+                                                                             const std::size_t r_cnt = 0) noexcept {
+        return {computeZigzagOffset(2 * nth, l_cnt), computeZigzagOffset(2 * nth + 1, r_cnt)};
     }
 
 
@@ -2515,39 +2554,40 @@ public:
      * @return Container of Node* corresponding to each requested index.
      */
     template<typename Index,
-        template<typename, typename...> class Container,
-        typename AllocIndex,
-        typename... Rest,
-        IntRange C = Container<Index, AllocIndex, Rest...> >
+             template<typename, typename...> class Container,
+             typename AllocIndex,
+             typename... Rest,
+             IntRange C = Container<Index, AllocIndex, Rest...>>
     auto find_n_nodes_sg(const C &in,
-                      const bool pre_sorted = false,
-                      const bool verbose = false,
-                      const bool profiling_info = false) {
-        using S = std::make_signed_t<Index>;
-        using AllocNodePtr = typename std::allocator_traits<AllocIndex>
-                ::template rebind_alloc<Node *>;
+                         const bool pre_sorted     = false,
+                         const bool verbose        = false,
+                         const bool profiling_info = false) {
+        using S            = std::make_signed_t<Index>;
+        using AllocNodePtr = typename std::allocator_traits<AllocIndex>::template rebind_alloc<Node *>;
         using OutContainer = Container<Node *, AllocNodePtr, Rest...>;
-        using Vec = std::vector<Node *, AllocNodePtr>;
+        using Vec          = std::vector<Node *, AllocNodePtr>;
 
-        const std::size_t N = size_; // total nodes in list
-        const S tail_i = static_cast<S>(N) - 1; // last index
+        const std::size_t N = size_;                 // total nodes in list
+        const S tail_i      = static_cast<S>(N) - 1; // last index
 
         // Early exit for empty map
         if (UNLIKELY(N == 0)) {
-            return OutContainer{};
+            return OutContainer {};
         }
 
         // 2a. Normalize & collect indices modulo N
         std::vector<S> mod_idx;
         mod_idx.reserve(in.size());
-        for (auto raw: in) {
+        for (auto raw : in) {
             S m = static_cast<S>(raw) % static_cast<S>(N);
-            if (m < 0) m += static_cast<S>(N);
+            if (m < 0)
+                m += static_cast<S>(N);
             mod_idx.push_back(m);
         }
         if (verbose) {
             std::cout << "find_n_nodes: normalized = { ";
-            for (auto m: mod_idx) std::cout << m << ' ';
+            for (auto m : mod_idx)
+                std::cout << m << ' ';
             std::cout << "}\n";
         }
 
@@ -2562,7 +2602,7 @@ public:
 
         const std::size_t M = mod_idx.size();
         if (M == 0) {
-            return OutContainer{}; // no requests remain
+            return OutContainer {}; // no requests remain
         }
 
         // 2c. Greedy zig-zag walk
@@ -2576,40 +2616,38 @@ public:
         while (left <= right) {
             // 2d. Compute next left/right pick offsets
             auto [l_off, r_off] = computeZigzagOffsetPair(0, l_cnt, r_cnt);
-            S l_mod_idx = mod_idx[0 + l_off];
-            S r_mod_idx = mod_idx[M + r_off];
+            S l_mod_idx         = mod_idx[0 + l_off];
+            S r_mod_idx         = mod_idx[M + r_off];
 
             // 2e. Distances from current bounds
             const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
             const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
-            bool pick_left = (l_dist <= r_dist);
+            bool pick_left    = (l_dist <= r_dist);
             total_walk += pick_left ? l_dist : r_dist;
 
             // 2f. Walk to the chosen node
-            Node *cur = pick_left
-                            ? walk(left_ref, static_cast<size_t>(l_dist), true)
-                            : walk(right_ref, static_cast<size_t>(r_dist), false);
+            Node *cur = pick_left ? walk(left_ref, static_cast<size_t>(l_dist), true)
+                                  : walk(right_ref, static_cast<size_t>(r_dist), false);
 
             // 2g. Update bounds & refs
             if (pick_left) {
-                bnd_low = l_mod_idx;
+                bnd_low  = l_mod_idx;
                 left_ref = cur;
                 ++l_cnt;
                 ++left;
             } else {
-                bnd_high = r_mod_idx;
+                bnd_high  = r_mod_idx;
                 right_ref = cur;
                 ++r_cnt;
                 --right;
             }
             out[pick_left ? left - 1 : right + 1] = cur;
-
         }
 
         if (profiling_info) {
             std::cout << "find_n_nodes: profiling info: \n";
-            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
-                    << (static_cast<double>(M) / (M + 1)) * (N - 1) << "\n";
+            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = " << (static_cast<double>(M) / (M + 1)) * (N - 1)
+                      << "\n";
             std::cout << "Actual walk bound = " << total_walk << "\n";
         }
 
@@ -2631,13 +2669,14 @@ public:
      *   yields std::vector<float>.
      */
     template<template<typename, typename...> class Dest,
-        typename Concrete>
+             typename Concrete>
     struct rebind_to; // primary left undefined
 
     template<template<typename, typename...> class Dest,
-        template<typename, typename...> class Src,
-        typename U, typename... As>
-    struct rebind_to<Dest, Src<U, As...> > {
+             template<typename, typename...> class Src,
+             typename U,
+             typename... As>
+    struct rebind_to<Dest, Src<U, As...>> {
         template<typename X, typename... Ys>
         using apply = Dest<X, Ys...>;
     };
@@ -2653,9 +2692,8 @@ public:
     template<typename Concrete>
     struct get_template; // primary undefined
 
-    template<template<typename, typename...> class TT,
-        typename U, typename... Args>
-    struct get_template<TT<U, Args...> > {
+    template<template<typename, typename...> class TT, typename U, typename... Args>
+    struct get_template<TT<U, Args...>> {
         template<typename X, typename... Ys>
         using apply = TT<X, Ys...>;
     };
@@ -2670,44 +2708,41 @@ public:
      */
     template<IntRange C>
     [[nodiscard]]
-    auto find_n_nodes_sg(const C &in,
-                      bool pre_sorted = false,
-                      bool verbose = false,
-                      bool profiling_info = false) {
-        using Index = std::ranges::range_value_t<C>;
+    auto find_n_nodes_sg(const C &in, bool pre_sorted = false, bool verbose = false, bool profiling_info = false) {
+        using Index      = std::ranges::range_value_t<C>;
         using AllocIndex = typename C::allocator_type;
 
-        return find_n_nodes<
-            Index,
-            get_template<std::remove_cvref_t<C> >::template apply,
-            AllocIndex
-        >(in, pre_sorted, verbose, profiling_info);
+        return find_n_nodes<Index, get_template<std::remove_cvref_t<C>>::template apply, AllocIndex>(in,
+                                                                                                     pre_sorted,
+                                                                                                     verbose,
+                                                                                                     profiling_info);
     }
 
-    std::vector<Node *> find_n_nodes_impl(
-            std::vector<int> &in,
-            const bool pre_sorted = false,
-            const bool verbose = false,
-            const bool profiling_info = false) {
+    std::vector<Node *> find_n_nodes_impl(std::vector<int> &in,
+                                          const bool pre_sorted     = false,
+                                          const bool verbose        = false,
+                                          const bool profiling_info = false) {
         using Vec = std::vector<Node *>;
 
-        const std::size_t N = size_; // total nodes in list
-        const int tail_i = static_cast<int>(N) - 1; // last index
+        const std::size_t N = size_;                   // total nodes in list
+        const int tail_i    = static_cast<int>(N) - 1; // last index
 
         // Early exit for empty map
         if (UNLIKELY(N == 0)) {
-            return Vec{};
+            return Vec {};
         }
 
         // 2a. Normalize & collect indices modulo N
-        for (int & i : in) {
+        for (int &i : in) {
             int m = i % static_cast<int>(N);
-            if (m < 0) m += static_cast<int>(N);
+            if (m < 0)
+                m += static_cast<int>(N);
             i = m;
         }
         if (verbose) {
             std::cout << "find_n_nodes: normalized = { ";
-            for (const auto m: in) std::cout << m << ' ';
+            for (const auto m : in)
+                std::cout << m << ' ';
             std::cout << "}\n";
         }
 
@@ -2722,7 +2757,7 @@ public:
 
         const std::size_t M = in.size();
         if (M == 0) {
-            return Vec{}; // no requests remain
+            return Vec {}; // no requests remain
         }
 
         // 2c. Greedy zig-zag walk
@@ -2742,34 +2777,32 @@ public:
             // 2e. Distances from current bounds
             const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
             const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
-            bool pick_left = (l_dist <= r_dist);
+            bool pick_left    = (l_dist <= r_dist);
             total_walk += pick_left ? l_dist : r_dist;
 
             // 2f. Walk to the chosen node
-            Node *cur = pick_left
-                            ? walk(left_ref, static_cast<size_t>(l_dist), true)
-                            : walk(right_ref, static_cast<size_t>(r_dist), false);
+            Node *cur = pick_left ? walk(left_ref, static_cast<size_t>(l_dist), true)
+                                  : walk(right_ref, static_cast<size_t>(r_dist), false);
 
             // 2g. Update bounds & refs
             if (pick_left) {
-                bnd_low = l_mod_idx;
+                bnd_low  = l_mod_idx;
                 left_ref = cur;
                 ++l_cnt;
                 ++left;
             } else {
-                bnd_high = r_mod_idx;
+                bnd_high  = r_mod_idx;
                 right_ref = cur;
                 ++r_cnt;
                 --right;
             }
             out[pick_left ? left - 1 : right + 1] = cur;
-
         }
 
         if (profiling_info) {
             std::cout << "find_n_nodes: profiling info: \n";
             std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
-                    << (static_cast<double>(M) / (static_cast<double>(M) + 1)) * (N - 1) << "\n";
+                      << (static_cast<double>(M) / (static_cast<double>(M) + 1)) * (N - 1) << "\n";
             std::cout << "Actual walk bound = " << total_walk << "\n";
         }
         return out;
@@ -2791,7 +2824,8 @@ public:
         if (size_ <= 1 || (k %= static_cast<int>(size_)) == 0)
             return;
 
-        if (k < 0) k += static_cast<int>(size_);
+        if (k < 0)
+            k += static_cast<int>(size_);
         head_ = walk(head_, k, /*forward=*/true);
         tail_ = head_->prev_;
     }
@@ -2804,7 +2838,8 @@ public:
      * - O(N) time, O(1) extra space.
      */
     void reverse() noexcept {
-        if (size_ <= 1) return;
+        if (size_ <= 1)
+            return;
 
         std::swap(head_, tail_);
         Node *cur = head_;
@@ -2815,29 +2850,25 @@ public:
     }
 
     // 2) Non-const overload: just forward to impl
-    std::vector<Node*>
-    find_n_nodes(std::vector<int>& in,
-                 const bool pre_sorted       = false,
-                 const bool verbose          = false,
-                 const bool profiling_info  = false)
-    {
+    std::vector<Node *> find_n_nodes(std::vector<int> &in,
+                                     const bool pre_sorted     = false,
+                                     const bool verbose        = false,
+                                     const bool profiling_info = false) {
         return find_n_nodes_impl(in, pre_sorted, verbose, profiling_info);
     }
 
     // 3) Const overload: copy once, then forward
-    std::vector<Node*>
-    find_n_nodes(const std::vector<int>& in,
-                 const bool pre_sorted       = false,
-                 const bool verbose          = false,
-                 const bool profiling_info  = false)
-    {
-        std::vector<int> copy = in;   // ← single allocation + O(n) copy
+    std::vector<Node *> find_n_nodes(const std::vector<int> &in,
+                                     const bool pre_sorted     = false,
+                                     const bool verbose        = false,
+                                     const bool profiling_info = false) {
+        std::vector<int> copy = in; // ← single allocation + O(n) copy
         return find_n_nodes_impl(copy, pre_sorted, verbose, profiling_info);
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Splicing and Splitting -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Splicing and Splitting -----
 
     /**
      * @brief Splice a range of elements from another map into this map.
@@ -2852,19 +2883,16 @@ public:
      * @param last   Iterator one past the last element to splice.
      * @return Iterator pointing to the first spliced element in this map.
      */
-    iterator splice(iterator pos,
-                    DoublyLinkedCircularHashMap &other,
-                    iterator first,
-                    iterator last) {
+    iterator splice(iterator pos, DoublyLinkedCircularHashMap &other, iterator first, iterator last) {
         // No elements or empty range → nothing to do
         if (other.empty() || first == last) {
             return pos;
         }
 
         // Identify start and end of subchain to move
-        Node *f = first.cur; // first node in range
-        Node *l = last.cur; // node after last to move
-        Node *lPrev = l->prev_; // last node in range
+        Node *f     = first.cur; // first node in range
+        Node *l     = last.cur;  // node after last to move
+        Node *lPrev = l->prev_;  // last node in range
 
         // Count nodes to move
         size_t count = 0;
@@ -2873,39 +2901,40 @@ public:
         }
 
         // Detach subchain [f ... lPrev] from other map
-        Node *fPrev = f->prev_;
+        Node *fPrev  = f->prev_;
         fPrev->next_ = l; // bypass subchain
-        l->prev_ = fPrev;
+        l->prev_     = fPrev;
 
         // Update other map's head, tail, and size
         other.size_ -= count;
         if (other.size_ == 0) {
             other.head_ = other.tail_ = nullptr;
         } else {
-            if (other.head_ == f) other.head_ = l;
-            if (other.tail_ == lPrev) other.tail_ = fPrev;
+            if (other.head_ == f)
+                other.head_ = l;
+            if (other.tail_ == lPrev)
+                other.tail_ = fPrev;
         }
 
         // Splice into this map at pos
         if (empty()) {
             // This map was empty → subchain becomes entire list
-            head_ = f;
-            tail_ = lPrev;
+            head_        = f;
+            tail_        = lPrev;
             head_->prev_ = tail_;
             tail_->next_ = head_;
         } else {
-            Node *posNode = pos.cur; // insertion point
-            Node *posPrev = posNode
-                                ? posNode->prev_ // node before insertion
-                                : tail_;
+            Node *posNode = pos.cur;                 // insertion point
+            Node *posPrev = posNode ? posNode->prev_ // node before insertion
+                                    : tail_;
 
             // Link posPrev → f
             posPrev->next_ = f;
-            f->prev_ = posPrev;
+            f->prev_       = posPrev;
 
             // Link lPrev → posNode (or wrap to head_)
             if (posNode) {
-                lPrev->next_ = posNode;
+                lPrev->next_   = posNode;
                 posNode->prev_ = lPrev;
             } else {
                 // pos == end() → wrap to head_
@@ -2946,16 +2975,16 @@ public:
      */
     DoublyLinkedCircularHashMap split(const int idx) {
         // Prepare result map with same configuration
-        DoublyLinkedCircularHashMap tailMap(
-            htBaseVector_.size(), maxLoadFactor_,
-            hashFunc_, keyEqFunc_);
+        DoublyLinkedCircularHashMap tailMap(htBaseVector_.size(), maxLoadFactor_, hashFunc_, keyEqFunc_);
 
         const int N = static_cast<int>(size_);
-        if (N == 0) return tailMap; // empty → nothing to move
+        if (N == 0)
+            return tailMap; // empty → nothing to move
 
         // Normalize split index
         int k = idx % N;
-        if (k < 0) k += N;
+        if (k < 0)
+            k += N;
 
         // Trivial: split at 0 → all elements go to new map
         if (k == 0) {
@@ -2969,16 +2998,16 @@ public:
         }
 
         // Locate cut point
-        Node *cut = orderedGetNode(k);
+        Node *cut     = orderedGetNode(k);
         Node *cutPrev = cut->prev_;
 
         // Sever circular links in this map
         cutPrev->next_ = head_;
-        head_->prev_ = cutPrev;
+        head_->prev_   = cutPrev;
 
         // Initialize tailMap's list
-        tailMap.head_ = cut;
-        tailMap.tail_ = tail_;
+        tailMap.head_        = cut;
+        tailMap.tail_        = tail_;
         tailMap.head_->prev_ = tailMap.tail_;
         tailMap.tail_->next_ = tailMap.head_;
 
@@ -2987,8 +3016,8 @@ public:
 
         // Compute sizes
         const size_t oldSize = size_;
-        size_ = static_cast<size_t>(k);
-        tailMap.size_ = oldSize - size_;
+        size_                = static_cast<size_t>(k);
+        tailMap.size_        = oldSize - size_;
 
         // Rehome bucket pointers for moved nodes
         Node *curNode = cut;
@@ -3020,7 +3049,7 @@ public:
         size_t erased = 0;
         for (auto it = begin(); it != end(); /* no increment */) {
             const Key &k = (*it).first;
-            Value &v = (*it).second;
+            Value &v     = (*it).second;
             if (verbose) {
                 std::cout << "[erase_if] visiting key=" << k << "\n";
             }
@@ -3041,8 +3070,8 @@ public:
     }
 
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Debug, Validation, and Utility -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Debug, Validation, and Utility -----
 
     /**
      * @brief Compute the size of each hash bucket.
@@ -3051,7 +3080,8 @@ public:
      *
      * @return A vector of bucket chain lengths, indexed by bucket.
      */
-    [[nodiscard]] std::vector<size_t> bucketSizesCalc() const {
+    [[nodiscard]]
+    std::vector<size_t> bucketSizesCalc() const {
         std::vector<size_t> sizes(htBaseVector_.size(), 0);
         // Count nodes in each bucket chain
         for (size_t b = 0; b < htBaseVector_.size(); ++b) {
@@ -3102,9 +3132,7 @@ public:
     void debugKey(const Key &k, std::ostream &os = std::cout) const {
         size_t h = hashFunc_(k);
         size_t b = h % htBaseVector_.size();
-        os << "key=" << k
-                << "  hash=" << h
-                << "  bucket=" << b << "\n";
+        os << "key=" << k << "  hash=" << h << "  bucket=" << b << "\n";
     }
 
     /**
@@ -3118,8 +3146,9 @@ public:
         if (size_ == 0) {
             if (head_ || tail_)
                 throw std::runtime_error("Empty map must have null head/tail");
-            for (auto b: htBaseVector_) {
-                if (b) throw std::runtime_error("Empty map must have no bucket entries");
+            for (auto b : htBaseVector_) {
+                if (b)
+                    throw std::runtime_error("Empty map must have no bucket entries");
             }
             return;
         }
@@ -3153,7 +3182,7 @@ public:
 
         // 3) Walk each bucket chain, ensuring every list node appears exactly once
         size_t bucketCounted = 0;
-        for (auto bucketHead: htBaseVector_) {
+        for (auto bucketHead : htBaseVector_) {
             for (const Node *n = bucketHead; n; n = n->hashNext_) {
                 ++bucketCounted;
                 if (!seen.count(n)) {
@@ -3171,8 +3200,8 @@ public:
         }
     }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Key and Value Views -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Key and Value Views -----
 
     /**
      * @brief View of all keys in insertion order.
@@ -3180,8 +3209,7 @@ public:
      * @return A range of const Key&.
      */
     auto keys_view() const {
-        return std::views::all(*this)
-               | std::views::transform([](auto const &kv) -> const Key & { return kv.first; });
+        return std::views::all(*this) | std::views::transform([](const auto &kv) -> const Key & { return kv.first; });
     }
 
     /**
@@ -3190,22 +3218,18 @@ public:
      * @return A range of const Value&.
      */
     auto values_view() const {
-        return std::views::all(*this)
-               | std::views::transform([](auto const &kv) -> const Value & { return kv.second; });
+        return std::views::all(*this) |
+               std::views::transform([](const auto &kv) -> const Value & { return kv.second; });
     }
 
     /** @brief Shorthand for keys_view(). */
-    auto keys() const {
-        return keys_view();
-    }
+    auto keys() const { return keys_view(); }
 
     /** @brief Shorthand for values_view(). */
-    auto values() const {
-        return values_view();
-    }
+    auto values() const { return values_view(); }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Swap Functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Swap Functions -----
 
     /**
      * @brief Swap contents with another map.
@@ -3230,13 +3254,10 @@ public:
      * @param a  First map.
      * @param b  Second map.
      */
-    friend void swap(DoublyLinkedCircularHashMap &a,
-                     DoublyLinkedCircularHashMap &b) noexcept {
-        a.swap(b);
-    }
+    friend void swap(DoublyLinkedCircularHashMap &a, DoublyLinkedCircularHashMap &b) noexcept { a.swap(b); }
 
-    //───────────────────────────────────────────────────────────────────────────//
-    // ----- Deprecated functions -----
+    // ───────────────────────────────────────────────────────────────────────────//
+    //  ----- Deprecated functions -----
 
     // original version of shift_idx
     /**
@@ -3252,7 +3273,8 @@ public:
      * @param shift  Number of positions to move (positive → forward; negative → backward).
      * @throws std::out_of_range if the map is empty or index out of range.
      */
-    [[deprecated]] void shift_idx_og(const int idx, const int shift) {
+    [[deprecated]]
+    void shift_idx_og(const int idx, const int shift) {
         // make more efficient bny avoiding double lookup and minimizing distance:
         // make sure we actually need to do something
         if (shift == 0) {
@@ -3262,11 +3284,11 @@ public:
         if (size_ == 0) {
             throw std::out_of_range("Index out of range");
         }
-        const int int_size = static_cast<int>(size_);
+        const int int_size   = static_cast<int>(size_);
         const int result_idx = idx + shift;
-        const int tail_idx = size_ - 1;
-        int mod_idx = idx % int_size;
-        int mod_r_idx = result_idx % int_size;
+        const int tail_idx   = size_ - 1;
+        int mod_idx          = idx % int_size;
+        int mod_r_idx        = result_idx % int_size;
         // handle negative indices
         if (mod_idx < 0) {
             mod_idx += int_size;
@@ -3280,12 +3302,12 @@ public:
         }
         // check which of mod_idx and mod_r_idx is closest to a reference node. Ie head_ or tail_
         // we will first fetch the closest node to a reference node
-        const int &idx_frm_head_idx = mod_idx;
+        const int &idx_frm_head_idx   = mod_idx;
         const int &r_idx_frm_head_idx = mod_r_idx;
-        const int idx_frm_tail_idx = tail_idx - mod_idx;
-        const int r_idx_frm_tail_idx = tail_idx - mod_r_idx;
-        const int idx_shortest_idx = std::min(idx_frm_head_idx, idx_frm_tail_idx);
-        const int r_idx_shortest_idx = std::min(r_idx_frm_head_idx, r_idx_frm_tail_idx);
+        const int idx_frm_tail_idx    = tail_idx - mod_idx;
+        const int r_idx_frm_tail_idx  = tail_idx - mod_r_idx;
+        const int idx_shortest_idx    = std::min(idx_frm_head_idx, idx_frm_tail_idx);
+        const int r_idx_shortest_idx  = std::min(r_idx_frm_head_idx, r_idx_frm_tail_idx);
         int closest_idx;
         int closest_idx_raw;
         int furthest_idx;
@@ -3296,21 +3318,21 @@ public:
         Node *idx_node;
         Node *r_idx_node;
         if (idx_shortest_idx <= r_idx_shortest_idx) {
-            closest_idx = idx_shortest_idx;
-            closest_idx_raw = idx_frm_head_idx;
-            furthest_idx = r_idx_shortest_idx;
+            closest_idx      = idx_shortest_idx;
+            closest_idx_raw  = idx_frm_head_idx;
+            furthest_idx     = r_idx_shortest_idx;
             furthest_idx_raw = r_idx_frm_head_idx;
-            from_idx = true;
-            from_head = idx_frm_head_idx <= idx_frm_tail_idx;
-            far_from_head = r_idx_frm_head_idx <= r_idx_frm_tail_idx;
+            from_idx         = true;
+            from_head        = idx_frm_head_idx <= idx_frm_tail_idx;
+            far_from_head    = r_idx_frm_head_idx <= r_idx_frm_tail_idx;
         } else {
-            closest_idx = r_idx_shortest_idx;
-            closest_idx_raw = r_idx_frm_head_idx;
-            furthest_idx = idx_shortest_idx;
+            closest_idx      = r_idx_shortest_idx;
+            closest_idx_raw  = r_idx_frm_head_idx;
+            furthest_idx     = idx_shortest_idx;
             furthest_idx_raw = idx_frm_head_idx;
-            from_idx = false;
-            from_head = r_idx_frm_head_idx <= r_idx_frm_tail_idx;
-            far_from_head = idx_frm_head_idx <= idx_frm_tail_idx;
+            from_idx         = false;
+            from_head        = r_idx_frm_head_idx <= r_idx_frm_tail_idx;
+            far_from_head    = idx_frm_head_idx <= idx_frm_tail_idx;
         }
         Node *first_ref = from_head ? head_ : tail_;
         // iterate through the list to find the closest node
@@ -3357,4 +3379,4 @@ public:
 };
 
 
-#endif //DOUBLYLINKEDCIRCULARHASHMAP_HPP
+#endif // DOUBLYLINKEDCIRCULARHASHMAP_HPP
