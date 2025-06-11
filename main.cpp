@@ -1,12 +1,12 @@
-#include <iostream>
-#include <cblas.h>
-#include <boost/beast.hpp>
-#include <boost/asio.hpp>
-#include <boost/regex.hpp>
 #include <algorithm>
-#include <string>
-#include "DOUBLYLINKEDCIRCULARHASHMAP.hpp"
 #include <cassert>
+#include <cblas.h>
+#include <iostream>
+#include <string>
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
+#include <boost/regex.hpp>
+#include "DOUBLYLINKEDCIRCULARHASHMAP.hpp"
 
 int doublyLinkedCHMTest() {
     // 1) Build and fill the map
@@ -681,89 +681,107 @@ void test_zigzag() {
 //------------------------------------------------------------------------------
 // A minimal allocator that just counts allocate()/deallocate() calls
 struct CountingAllocatorBase {
-    static size_t allocCount;
-    static size_t deallocCount;
+    static inline size_t allocCount;
+    static inline size_t deallocCount;
 };
-
-size_t CountingAllocatorBase::allocCount = 0;
-size_t CountingAllocatorBase::deallocCount = 0;
 
 // now every specialization of CountingAllocator<T> will inherit the same counters:
 template<typename T>
 struct CountingAllocator : CountingAllocatorBase {
     using value_type = T;
 
-    CountingAllocator() = default;
 
-    template<typename U>
-    explicit CountingAllocator(const CountingAllocator<U> &) noexcept {
+    // one independent counter **per specialisation**
+    static inline std::size_t allocCount_T  = 0;
+    static inline std::size_t deallocCount_T = 0;
+
+    // -------- mandatory member types / props ----------
+    using propagate_on_container_swap = std::true_type;
+    using is_always_equal             = std::true_type;
+
+    // rebind (still required by the standard for pre-C++20 allocators)
+    template<class U> struct rebind {
+        using other = CountingAllocator<U>;
+    };
+
+    CountingAllocator() noexcept = default;
+    template<class U>
+    constexpr explicit CountingAllocator(const CountingAllocator<U>&) noexcept {}
+
+    // -------- allocate / deallocate --------------------
+    static T* allocate(const std::size_t n) {
+        allocCount += n;
+        allocCount_T += n;
+        return static_cast<T*>(operator new(n * sizeof(T)));
     }
-
-    static T *allocate(const size_t n) {
-        allocCount += n; // this is CountingAllocatorBase::allocCount
-        return static_cast<T *>(operator new(n * sizeof(T)));
-    }
-
-    static void deallocate(T *p, const size_t n) noexcept {
+    static void deallocate(T* p, const std::size_t n) noexcept {
         deallocCount += n;
+        deallocCount_T += n;
         ::operator delete(p);
     }
 
-    template<typename U, typename... Args>
-    void construct(U *p, Args &&... args) {
-        ::new(static_cast<void *>(p)) U(std::forward<Args>(args)...);
+    // -------- (optional) construct / destroy helpers ---
+    template<class U, class... Args>
+    void construct(U* p, Args&&... args) {
+        ::new (static_cast<void*>(p)) U(std::forward<Args>(args)...);
     }
-
-    template<typename U>
-    static void destroy(U *p) {
-        p->~U();
-    }
+    template<class U>
+    static void destroy(U* p) { p->~U(); }
 };
 
-//------------------------------------------------------------------------------
+// allocator equality required by the standard
+template<class U, class V>
+constexpr bool operator==(const CountingAllocator<U>&,
+                          const CountingAllocator<V>&) noexcept { return true; }
+template<class U, class V>
+constexpr bool operator!=(const CountingAllocator<U>&,
+                          const CountingAllocator<V>&) noexcept { return false; }
+
+// ---------------------------------------------------------------------------
 // Test function for allocator support
-void testAllocatorSupport() {
-    using MapT = DoublyLinkedCircularHashMap<
-        int,
-        std::string,
-        std::hash<int>,
-        std::equal_to<int>,
-        CountingAllocator<std::pair<const int, std::string> >
-    >;
-    using Alloc = CountingAllocator<std::pair<const int, std::string> >;
+// ---------------------------------------------------------------------------
+void testAllocatorSupport()
+{
+    using PairAlloc = CountingAllocator<std::pair<const int, std::string>>;
+    using MapT      = DoublyLinkedCircularHashMap<
+                          int,
+                          std::string,
+                          std::hash<int>,
+                          std::equal_to<>,
+                          PairAlloc>;
 
-    std::cout << "\n=== Testing Custom Allocator Support ===\n";
-
-    // Reset counters
-    Alloc::allocCount = 0;
-    Alloc::deallocCount = 0;
-
-    // Construct map with our counting allocator
-    MapT m(
-        /*initBuckets=*/ 8,
-                         /*maxLoadFactor=*/ 1.0,
-                         std::hash<int>{},
-                         std::equal_to<int>{},
-                         Alloc{}
-    );
+    // allocator that will actually be used for the nodes
+    using NodeAlloc = CountingAllocator<MapT::NodeType>;
 
     constexpr int N = 10;
-    // 1) Insert N elements
-    for (int i = 0; i < N; ++i) {
-        m.insert(i, std::to_string(i));
-    }
-    std::cout << "After insert, allocCount = " << Alloc::allocCount
-            << " (expected " << N << ")\n";
-    assert(Alloc::allocCount == N);
+    std::cout << "\n=== Testing Custom Allocator Support ===\n";
 
-    // 2) Remove them one by one
-    for (int i = 0; i < N; ++i) {
-        const bool erased = m.remove(i);
-        assert(erased);
-    }
-    std::cout << "After remove, deallocCount = " << Alloc::deallocCount
-            << " (expected " << N << ")\n";
-    assert(Alloc::deallocCount == N);
+    /* reset ONLY the node-counters; bucket‐array allocations are irrelevant
+       for this test                                                */
+    NodeAlloc::allocCount_T   = 0;
+    NodeAlloc::deallocCount_T = 0;
+
+    MapT m{/*initBuckets=*/8, /*maxLoadFactor=*/1.0,
+           std::hash<int>{}, std::equal_to<int>{}, PairAlloc{}};
+
+    // 1) insert N elements → N new nodes
+    for (int i = 0; i < N; ++i)
+        m.insert(i, std::to_string(i));
+
+    std::cout << "NodeAlloc::allocCount_T   = "
+              << NodeAlloc::allocCount_T << " (expected " << N
+              << " — N nodes)\n";
+    assert(NodeAlloc::allocCount_T == N);         // N data nodes + sentinel
+    assert(NodeAlloc::deallocCount_T == 0);           // nothing freed yet
+
+    // 2) remove them again → the N data nodes are freed, sentinel stays
+    for (int i = 0; i < N; ++i)
+        m.remove(i);
+
+    std::cout << "NodeAlloc::deallocCount_T = "
+              << NodeAlloc::deallocCount_T << " (expected " << N << ")\n";
+    assert(NodeAlloc::deallocCount_T == N);           // exactly N frees
+    assert(NodeAlloc::allocCount_T - NodeAlloc::deallocCount_T == 0); // all nodes freed
 
     std::cout << "[OK] Custom Allocator test passed\n";
 }

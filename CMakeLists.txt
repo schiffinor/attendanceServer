@@ -57,12 +57,31 @@ add_executable(attendanceServer
 
 # tiny demo target
 add_executable(testUniqueErase testUniqueErase.cpp)
+
+# server demo target
+add_executable(server server.cpp)
+
+# poly demo target
+add_executable(polyTest crypto/polyTest.cpp)
+
 set_target_properties(testUniqueErase PROPERTIES EXCLUDE_FROM_ALL YES)
 
 target_link_libraries(testUniqueErase PRIVATE)
 
+set_target_properties(server PROPERTIES EXCLUDE_FROM_ALL YES)
+# link server to Boost
+target_link_libraries(server
+        PRIVATE
+        ${Boost_LIBRARIES}
+)
+set_target_properties(polyTest PROPERTIES EXCLUDE_FROM_ALL YES)
 
-
+target_compile_options(
+        polyTest
+        PRIVATE
+        -O3 -mavx2 -mfma
+        #-O3 -msse4.2 -mno-avx -mno-avx
+)
 
 target_link_libraries(attendanceServer
         PRIVATE

@@ -173,7 +173,7 @@ MacroBlockBegin: ""
 MacroBlockEnd: ""
 MainIncludeChar: Quote
 MaxEmptyLinesToKeep: 2
-NamespaceIndentation: All
+NamespaceIndentation: Inner
 ObjCBinPackProtocolList: Auto
 ObjCBlockIndentWidth: 2
 ObjCBreakBeforeNestedBlockParam: true
@@ -195,7 +195,6 @@ PenaltyReturnTypeOnItsOwnLine: 60
 PointerAlignment: Right
 QualifierAlignment: Left
 ReferenceAlignment: Pointer
-ReflowComments: IndentOnly
 RemoveBracesLLVM: false
 RemoveParentheses: Leave
 RemoveSemicolon: false

@@ -271,10 +271,12 @@ class DoublyLinkedCircularHashMap {
     template<typename T>
     using rebind_t           = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
     using node_allocator_t   = rebind_t<Node>;
+    using node_ptr_allocator_t = rebind_t<Node *>;
     using size_t_allocator_t = rebind_t<size_t>;
 
     Alloc alloc_;
     node_allocator_t nodeAlloc_;
+    node_ptr_allocator_t nodePtrAlloc_;
     size_t_allocator_t sizeAlloc_;
 
     struct alignas(64) Node {
@@ -310,7 +312,7 @@ class DoublyLinkedCircularHashMap {
     // ────────────────────────────────────────────────────────────────────────//
     //----- Internal data members for DoublyLinkedCircularHashMap -----
 
-    std::vector<Node *, node_allocator_t> htBaseVector_;
+    std::vector<Node *, node_ptr_allocator_t> htBaseVector_;
     /**< Heads of each hash bucket chain. Size = number of buckets. */
     std::vector<size_t, size_t_allocator_t> bucketSizes_;
     /**< Number of nodes currently in each bucket, for diagnostics. */
@@ -410,31 +412,51 @@ class DoublyLinkedCircularHashMap {
     /**
      * @brief Inserts a node into its proper bucket using separate chaining.
      * @param node Node to insert; we’ll splice it into the head of its chain.
+     * @param bucket Reference to the bucket vector where this node should go.
+     * @param bucketSizes Reference to the vector tracking sizes of each bucket.
+     * @param maxBucketSize Reference to the current maximum bucket size.
+     * @param largestBucketIdx Reference to the index of the largest bucket.
      *
      * New nodes go to the front for O(1) insertion. Updates bucketSizes_, and
      * if this bucket grows beyond the old max, updates maxBucketSize_ and
      * largestBucketIdx_.
      */
-    void bucketInsert_(Node *node) {
-        auto idx   = bucketIndex_(node->key_);
-        Node *head = htBaseVector_[idx];
+    void bucketInsert_(
+        Node *node,
+        std::vector<Node *, node_ptr_allocator_t> &bucket,
+        std::vector<size_t, size_t_allocator_t> &bucketSizes,
+        size_t &maxBucketSize,
+        size_t &largestBucketIdx) {
+        auto idx   = hashFunc_(node->key_) % bucket.size();
+        Node *head = bucket[idx];
         if (!head) {
             // Empty bucket → node stands alone.
-            htBaseVector_[idx] = node;
+            bucket[idx] = node;
             node->hashNext_ = node->hashPrev_ = nullptr;
         } else {
             // Prepend node to existing chain.
             node->hashNext_    = head;
             head->hashPrev_    = node;
             node->hashPrev_    = nullptr;
-            htBaseVector_[idx] = node;
+            bucket[idx] = node;
         }
-        ++bucketSizes_[idx]; // Keep the count honest.
+        ++bucketSizes[idx]; // Keep the count honest.
         // Track maximum chain length.
-        if (bucketSizes_[idx] > maxBucketSize_) {
-            maxBucketSize_    = bucketSizes_[idx];
-            largestBucketIdx_ = idx;
+        if (bucketSizes[idx] > maxBucketSize) {
+            maxBucketSize    = bucketSizes[idx];
+            largestBucketIdx = idx;
         }
+    }
+
+    /**
+     * @brief Inserts a node into its proper bucket using separate chaining.
+     * @param node Node to insert; we’ll splice it into the head of its chain.
+     *
+     * Uses the internal bucket vector and size tracking. Updates maxBucketSize_
+     * and largestBucketIdx_ as needed.
+     */
+    void bucketInsert_(Node *node) {
+        bucketInsert_(node, htBaseVector_, bucketSizes_, maxBucketSize_, largestBucketIdx_);
     }
 
     /**
@@ -462,6 +484,7 @@ class DoublyLinkedCircularHashMap {
             --bucketSizes_[idx];
         } else {
             // I don't think this can happen, but just in case...
+            // Be careful here because if this happens we leak.
             throw std::runtime_error("Bucket size is already 0");
         }
 
@@ -543,20 +566,26 @@ class DoublyLinkedCircularHashMap {
      * node in insertion order (circular list traversal). Increments rehashCount_.
      */
     void rehash_(size_t newBucketCount) {
-        std::vector<Node *> newTable(newBucketCount, nullptr);
-        htBaseVector_.swap(newTable);
-        bucketSizes_.assign(newBucketCount, 0);
-        maxBucketSize_    = 0;
-        largestBucketIdx_ = SIZE_MAX;
+        std::vector<Node *, node_ptr_allocator_t> newTable(newBucketCount, nullptr, nodePtrAlloc_);
+        std::vector<size_t, size_t_allocator_t> newBucketSizes(newBucketCount, 0, sizeAlloc_);
+        size_t newMaxBucketSize_    = 0;
+        size_t newLargestBucketIdx_ = SIZE_MAX;
 
         if (head_) {
             Node *cur = head_;
             do {
                 cur->hashNext_ = cur->hashPrev_ = nullptr; // reset chain links
-                bucketInsert_(cur);
+                bucketInsert_(cur, newTable, newBucketSizes, newMaxBucketSize_, newLargestBucketIdx_);
                 cur = cur->next_;
             } while (cur != head_);
         }
+
+        // Swap in the new table and sizes.
+        htBaseVector_  = std::move(newTable);
+        bucketSizes_   = std::move(newBucketSizes);
+        maxBucketSize_    = newMaxBucketSize_;
+        largestBucketIdx_ = newLargestBucketIdx_;
+
         ++rehashCount_; // document that we rehashed
     }
 
@@ -575,7 +604,6 @@ class DoublyLinkedCircularHashMap {
      */
     static Node *walk(Node *__restrict__ start, int steps, bool forward) noexcept {
         while (steps--) {
-            __builtin_prefetch(forward ? start->next_ : start->prev_, 0, 1);
             start = forward ? start->next_ : start->prev_;
         }
         return start;
@@ -595,7 +623,6 @@ class DoublyLinkedCircularHashMap {
         Container cur = starts; // copy to avoid mutating caller data
         while (--steps) {
             for (auto &n : cur) {
-                __builtin_prefetch(forward ? n->next_ : n->prev_, 0, 1);
                 n = forward ? n->next_ : n->prev_;
             }
         }
@@ -613,7 +640,12 @@ class DoublyLinkedCircularHashMap {
      * Transfers ownership of all internal data structures. The source map
      * is left in a valid but empty state.
      */
-    void steal_from(DoublyLinkedCircularHashMap &&src) noexcept {
+    void steal_from(DoublyLinkedCircularHashMap &&src) noexcept(
+        noexcept(htBaseVector_ = std::move(src.htBaseVector_)) &&
+        noexcept(bucketSizes_ = std::move(src.bucketSizes_)) &&
+        noexcept(hashFunc_ = std::move(src.hashFunc_)) &&
+        noexcept(keyEqFunc_ = std::move(src.keyEqFunc_)))
+            {
         htBaseVector_  = std::move(src.htBaseVector_);
         bucketSizes_   = std::move(src.bucketSizes_);
         head_          = std::exchange(src.head_, nullptr);
@@ -625,6 +657,7 @@ class DoublyLinkedCircularHashMap {
     }
 
 public:
+    using NodeType = Node; /**< Alias for Node type, useful in templates. */
     // ───────────────────────────────────────────────────────────────────────────//
     //  ----- Constructors and destructors -----
 
@@ -647,8 +680,9 @@ public:
                                          const Alloc &alloc                                      = Alloc {})
         : alloc_(alloc),
           nodeAlloc_(alloc), // all buckets start empty
+          nodePtrAlloc_(alloc),
           sizeAlloc_(alloc),
-          htBaseVector_(initBuckets, nullptr, nodeAlloc_), // track 0 elements per bucket
+          htBaseVector_(initBuckets, nullptr, nodePtrAlloc_), // track 0 elements per bucket
           bucketSizes_(initBuckets, 0, sizeAlloc_),        // empty list → no head
           head_(nullptr),                                  // empty list → no tail
           tail_(nullptr),                                  // store user’s max load factor
@@ -682,16 +716,24 @@ public:
      * @param other Map to copy from.
      */
     DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other)
-        : alloc_(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.alloc_)), // copy allocator
-          nodeAlloc_(alloc_), // rebind from *our* alloc_
-          sizeAlloc_(alloc_),
-          htBaseVector_(other.htBaseVector_.size(), nullptr, nodeAlloc_), // new empty buckets
-          bucketSizes_(other.bucketSizes_.size(), 0, alloc_),             // new empty buckets
-          head_(nullptr),                                                 // list will be rebuilt
-          tail_(nullptr),
+        : DoublyLinkedCircularHashMap(
+            other,
+            std::allocator_traits<Alloc>::select_on_container_copy_construction(other.alloc_)
+        ) {
+
+    }
+
+    DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other, const Alloc &alloc)
+        : alloc_(), // use new allocator
+          nodeAlloc_(alloc),                                              // use new node allocator
+          nodePtrAlloc_(alloc),                                          // use new node pointer allocator
+          sizeAlloc_(alloc),                                              // use new size allocator
+          htBaseVector_(other.htBaseVector_.size(), nullptr, nodePtrAlloc_), // new empty buckets
+          bucketSizes_(other.bucketSizes_.size(), 0, sizeAlloc_),         // new empty buckets
           maxLoadFactor_(other.maxLoadFactor_), // copy load factor
           hashFunc_(other.hashFunc_),           // copy functor
-          keyEqFunc_(other.keyEqFunc_) {
+          keyEqFunc_(other.keyEqFunc_)          // copy equality functor
+    {
         if (other.head_) {
             Node *cur = other.head_;
             do {
@@ -700,21 +742,6 @@ public:
                 cur = cur->next_;
             } while (cur != other.head_);
         }
-    }
-
-    DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other, const Alloc &alloc)
-        : alloc_(alloc),                                                  // use new allocator
-          nodeAlloc_(alloc),                                              // use new node allocator
-          sizeAlloc_(alloc),                                              // use new size allocator
-          htBaseVector_(other.htBaseVector_.size(), nullptr, nodeAlloc_), // new empty buckets
-          bucketSizes_(other.bucketSizes_.size(), 0, sizeAlloc_),         // new empty buckets
-          head_(nullptr),                                                 // list will be rebuilt
-          tail_(nullptr),
-          maxLoadFactor_(other.maxLoadFactor_), // copy load factor
-          hashFunc_(other.hashFunc_),           // copy functor
-          keyEqFunc_(other.keyEqFunc_)          // copy equality functor
-    {
-        *this = other;
     }
 
     /**
@@ -732,32 +759,14 @@ public:
         }
 
         // 1. Possibly copy-assign allocators
-        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value) {
-            alloc_     = other.alloc_;
-            nodeAlloc_ = node_allocator_t(alloc_);
-            sizeAlloc_ = size_t_allocator_t(alloc_);
-        }
+        const Alloc& newAlloc =
+            std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value
+                ? other.alloc_
+                : alloc_; // use existing allocator
 
-        // 2. Clear existing nodes and reset state
-        clear(); // free existing nodes and reset state
-
-        // Recreate the buckets with the correct allocator
-        htBaseVector_  = std::vector<Node *, node_allocator_t>(other.htBaseVector_.size(), nullptr, nodeAlloc_);
-        bucketSizes_   = std::vector<size_t, size_t_allocator_t>(other.bucketSizes_.size(), 0, sizeAlloc_);
-        maxLoadFactor_ = other.maxLoadFactor_; // copy load factor
-        hashFunc_      = other.hashFunc_;      // copy hash functor
-        keyEqFunc_     = other.keyEqFunc_;     // copy equality functor
-
-        // 3. Reinsert all elements from the other map
-        if (other.head_) {
-            Node *cur = other.head_;
-            do {
-                // insert() handles both hashing and list-linking
-                insert(cur->key_, cur->value_);
-                cur = cur->next_;
-            } while (cur != other.head_);
-        }
-        return *this; // return self-reference
+        DoublyLinkedCircularHashMap tmp(other, newAlloc);
+        swap(tmp);
+        return *this;
     }
 
 
@@ -773,44 +782,39 @@ public:
      * @param other Map to move from.
      */
     DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other)
-            noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
-
-    {
-        if constexpr (std::allocator_traits<Alloc>::is_always_equal::value) {
-            steal_from(std::move(other)); // steal contents
-        } else if (alloc_ == other.alloc_) {
-            steal_from(std::move(other)); // steal contents
-        } else {
-            // If allocators differ, we need to deep copy the nodes
-            reserve(other.size_); // allocate new buckets
-            for (auto &[k, v] : other) {
-                insert(std::move(k), std::move(v)); // copy each element
-            }
-            other.clear(); // clear the other map
-        }
+    noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
+        : DoublyLinkedCircularHashMap(
+            std::move(other),
+            std::allocator_traits<Alloc>::is_always_equal::value
+                ? std::move(other.alloc_)
+                : Alloc{} // use new allocator if propagating
+            ) {
     }
 
     /**
-     * @brief Move constructor with custom allocator: takes ownership of resources from another map.
-     *
-     * Transfers bucket array, list pointers, size, and functors. Leaves other map
-     * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
-     *
-     * @param other Map to move from.
-     * @param alloc New allocator for this map.
-     */
-    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other, const Alloc &alloc)
+    * @brief Move constructor with custom allocator: takes ownership of resources from another map.
+    *
+    * Transfers bucket array, list pointers, size, and functors. Leaves other map
+    * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
+    *
+    * @param other Map to move from.
+    * @param alloc New allocator for this map.
+    */
+    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap && other, const Alloc &alloc)
+    noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
         : alloc_(alloc),     // use new allocator
           nodeAlloc_(alloc), // use new node allocator
+          nodePtrAlloc_(alloc), // use new node pointer allocator
           sizeAlloc_(alloc)  // use new size allocator
     {
-        if (alloc_ == other.alloc_ || std::allocator_traits<Alloc>::is_always_equal::value) {
+        if (std::allocator_traits<Alloc>::is_always_equal::value || alloc_ == other.alloc_) {
             steal_from(std::move(other)); // steal contents
         } else {
             // If allocators differ, we need to deep copy the nodes
             reserve(other.size_); // allocate new buckets
-            for (auto &[k, v] : other) {
-                insert(std::move(k), std::move(v)); // copy each element
+            for (auto it = other.begin(); it != other.end(); ++it) {
+                auto [k, v] = *it; // iterator::operator* gives the pair of references
+                insert(k, v); //
             }
             other.clear(); // clear the other map
         }
@@ -825,9 +829,32 @@ public:
      * @param other Map to move-assign from.
      * @return Reference to *this.
      */
-    DoublyLinkedCircularHashMap &operator=(DoublyLinkedCircularHashMap &&other) noexcept {
-        swap(other); // leverage strong swap for all internals
-        return *this;
+    DoublyLinkedCircularHashMap &operator=(DoublyLinkedCircularHashMap &&other) noexcept(
+        std::allocator_traits<Alloc>::is_always_equal::value ||
+        std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value)
+    {
+        if (this == &other) {
+            return *this; // self-assignment check
+        }
+
+        using Traits = std::allocator_traits<Alloc>;
+
+        // 1. Propogate allocator on move assignment (POCMA)
+        if constexpr (Traits::propagate_on_container_move_assignment::value) {
+            swap(other);
+            return *this;
+        }
+
+        // 2. Non-propagating allocators must be equal
+        if constexpr (Traits::is_always_equal::value || alloc_ == other.alloc_) {
+            swap(other);
+            return *this; // allocators are equal, just swap contents
+        }
+
+        // 3. Unequal, non-propagating allocators -> deep-move copy
+        DoublyLinkedCircularHashMap tmp(std::move(other), alloc_); // move-construct with new alloc
+        swap(tmp); // swap contents with the temporary
+        return *this; // return self-reference
     }
 
 
@@ -905,6 +932,19 @@ public:
         }
     }
 
+    // ----- STl required -----
+    using value_type        = std::pair<const Key, Value>;
+    using reference         = value_type&;
+    using const_reference   = const value_type&;
+    using pointer           = typename std::allocator_traits<Alloc>::pointer;
+    using const_pointer     = typename std::allocator_traits<Alloc>::const_pointer;
+    using difference_type   = typename std::allocator_traits<Alloc>::difference_type;
+    using size_type         = typename std::allocator_traits<Alloc>::size_type;
+
+    [[nodiscard]] allocator_type get_allocator() const noexcept { return alloc_; }
+
+
+
 
     // ───────────────────────────────────────────────────────────────────────────//
     //  ----- Capacity -----
@@ -956,7 +996,9 @@ public:
                 std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, cur, 1); // deallocate
                 cur = nxt;
             }
-            delete head_; // finally delete the original head
+            std::allocator_traits<node_allocator_t>::destroy(nodeAlloc_, head_);
+            std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, head_, 1); // free head
+
         }
         // Reset internal state
         head_ = tail_ = nullptr;
@@ -999,63 +1041,64 @@ public:
      * @param where Insertion index (see above). Defaults to -1 (append).
      * @throws std::out_of_range if where ∉ [-(size_+1) ... size_].
      */
-    void insert_at(const Key &key, const Value &value, const int where = -1) {
-        // 1) Validate insertion index
+    template<class K, class V>
+    void insert_at(K &&key, V &&value, const int where = -1) {
+        // 0. Validate insertion index
         const int intSize = static_cast<int>(size_);
         if (where > intSize || where < -(intSize + 1)) {
             throw std::out_of_range("Index out of range");
         }
 
-        // 2) If key already exists in its bucket, overwrite and exit
-        size_t idx = bucketIndex_(key);
-        for (Node *cur = htBaseVector_[idx]; cur; cur = cur->hashNext_) {
-            if (keyEqFunc_(cur->key_, key)) {
-                cur->value_ = value; // update existing
-                return;
-            }
+        // 1. Update-in-place if key already exists
+        if (Node *cur = find_node(key)) {
+            cur->value_ = std::forward<V>(value);
+            return; // key already exists, just update value
         }
 
-        // 3) Create a fresh node (self-linked in list)
-        Node *node = std::allocator_traits<node_allocator_t>::allocate(nodeAlloc_, 1);
-        std::allocator_traits<node_allocator_t>::construct(nodeAlloc_, node, std::move(key), std::move(value));
+        // 2. Ensure capacity first (may throw)
+        if (static_cast<double>(size_ + 1) / bucketCount() > maxLoadFactor_) {
+            // Load factor exceeded, rehash to increase buckets
+            rehash_(bucketCount() * 2); // double the buckets
+        }
 
-        // 4) Splice into the circular doubly-linked list
-        if (where == -1 || where == intSize) {
-            // Append at tail
-            if (!head_) {
-                head_ = tail_ = node; // first element
-            } else {
-                linkAfter_(tail_, node);
-            }
+        // 3. Allocate a new node / construct under guard
+        Node *rawNode = std::allocator_traits<node_allocator_t>::allocate(nodeAlloc_, 1);
+
+        // Make the deleter a lambda object that will destroy and deallocate the node
+        auto deleter = [this](Node *node) {
+            std::allocator_traits<node_allocator_t>::destroy(nodeAlloc_, node);
+            std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, node, 1);
+        };
+
+        std::unique_ptr<Node, decltype(deleter)> guardPtr(rawNode, deleter);
+
+        std::allocator_traits<node_allocator_t>::construct(
+            nodeAlloc_,
+            rawNode,
+            std::forward<K>(key),
+            std::forward<V>(value));
+
+        //4. Add to the hash bucket (no-throw) and commit
+        bucketInsert_(rawNode); // insert into the appropriate bucket
+
+        // 5. Insert into the circular list
+        if (!head_) {
+            head_ = tail_ = rawNode;
+        } else if (where == -1 || where == intSize) {
+            linkAfter_(tail_, rawNode); // append to end
         } else if (where == 0) {
-            // Prepend at head
-            if (!head_) {
-                head_ = tail_ = node;
-            } else {
-                linkBefore_(head_, node);
-            }
+            linkBefore_(head_, rawNode); // insert at front
         } else {
-            // Positional insertion relative to orderedGetNode()
-            if (!head_) {
-                head_ = tail_ = node;
+            Node *ref = orderedGetNode(where);
+            if (where > 0) {
+                linkBefore_(ref, rawNode); // insert before ref
             } else {
-                Node *cur = orderedGetNode(where);
-                if (where >= 0) {
-                    linkBefore_(cur, node);
-                } else {
-                    linkAfter_(cur, node);
-                }
+                linkAfter_(ref->prev_, rawNode); // insert after ref->prev_
             }
         }
 
-        // 5) Link into hash bucket chain and bump size_
-        bucketInsert_(node);
-        ++size_;
-
-        // 6) Auto-rehash if we're over the load factor
-        if (loadFactor() > maxLoadFactor_) {
-            rehash_(htBaseVector_.size() * 2);
-        }
+        ++size_; // increment size after successful insert
+        guardPtr.release(); // release ownership to the map
     }
 
     /**
@@ -2405,7 +2448,7 @@ public:
      * @throws std::out_of_range if the container is empty.
      */
     void shift_idx(const int idx, const int shift) __attribute__((always_inline, hot, optimize("O3"))) {
-        // 0) Fast path for zero shift
+        // 0. Fast path for zero shift
         if (LIKELY(shift == 0))
             return;
 
@@ -2416,7 +2459,7 @@ public:
         const int N      = static_cast<int>(size_);
         const int tail_i = N - 1;
 
-        // 1) Compute modularized source/destination indices in [0..N-1]
+        // 1. Compute modularized source/destination indices in [0..N-1]
         int src_mod = idx % N;
         int dst_mod = (idx + shift) % N;
         if (src_mod < 0)
@@ -2424,35 +2467,35 @@ public:
         if (dst_mod < 0)
             dst_mod += N;
 
-        // 2) If normalized indices coincide, no move needed
+        // 2. If normalized indices coincide, no move needed
         if (LIKELY(src_mod == dst_mod))
             return;
 
-        // 3) Distances from head_ and tail_ to src and dst
+        // 3. Distances from head_ and tail_ to src and dst
         const int src_from_head = src_mod;
         const int dst_from_head = dst_mod;
         const int src_from_tail = tail_i - src_mod;
         const int dst_from_tail = tail_i - dst_mod;
 
-        // 4) Choose whether to reference from source or destination first
+        // 4. Choose whether to reference from source or destination first
         const int src_walk  = std::min(src_from_head, src_from_tail);
         const int dst_walk  = std::min(dst_from_head, dst_from_tail);
         const bool from_src = (src_walk <= dst_walk);
 
-        // 5) Decide direction and starting reference for first walk
+        // 5. Decide direction and starting reference for first walk
         const bool first_dir = from_src ? (src_from_head <= src_from_tail) : (dst_from_head <= dst_from_tail);
         Node *first_ref      = first_dir ? head_ : tail_;
         const int first_walk = from_src ? src_walk : dst_walk;
 
-        // 6) Compute remaining walk for the other index
+        // 6. Compute remaining walk for the other index
         const int second_walk = from_src ? dst_walk : src_walk;
 
-        // 7) Perform first walk
+        // 7. Perform first walk
         Node *cur      = walk(first_ref, first_walk, first_dir);
         Node *src_node = from_src ? cur : nullptr;
         Node *dst_node = from_src ? nullptr : cur;
 
-        // 8) Determine optimal path for second walk
+        // 8. Determine optimal path for second walk
         if (const int raw_dist = std::abs(src_from_head - dst_from_head); raw_dist <= second_walk) {
             // walking directly from current position is cheaper
             cur = walk(cur, raw_dist, first_dir);
@@ -2467,7 +2510,7 @@ public:
         else
             src_node = cur;
 
-        // 9) Perform the final splice in O(1)
+        // 9. Perform the final splice in O(1)
         if (shift > 0) {
             move_node_after(src_node, dst_node);
         } else {
@@ -2718,6 +2761,18 @@ public:
                                                                                                      profiling_info);
     }
 
+    /**
+     * @brief Implementation of find_n_nodes that operates on a vector of indices.
+     *
+     * This function is specialized for std::vector<Node *> output, allowing
+     * for efficient bulk retrieval of nodes by insertion-order indices.
+     *
+     * @param in          Input vector of indices to find.
+     * @param pre_sorted  If true, skip sorting step.
+     * @param verbose     If true, emit debug prints.
+     * @param profiling_info If true, emit profiling info.
+     * @return Vector of Node* corresponding to the requested indices.
+     */
     std::vector<Node *> find_n_nodes_impl(std::vector<int> &in,
                                           const bool pre_sorted     = false,
                                           const bool verbose        = false,
@@ -2849,7 +2904,7 @@ public:
         } while (cur != head_);
     }
 
-    // 2) Non-const overload: just forward to impl
+    // 2. Non-const overload: just forward to impl
     std::vector<Node *> find_n_nodes(std::vector<int> &in,
                                      const bool pre_sorted     = false,
                                      const bool verbose        = false,
@@ -2857,7 +2912,7 @@ public:
         return find_n_nodes_impl(in, pre_sorted, verbose, profiling_info);
     }
 
-    // 3) Const overload: copy once, then forward
+    // 3. Const overload: copy once, then forward
     std::vector<Node *> find_n_nodes(const std::vector<int> &in,
                                      const bool pre_sorted     = false,
                                      const bool verbose        = false,
@@ -3142,7 +3197,7 @@ public:
      * Throws std::runtime_error on any inconsistency.
      */
     void validate() const {
-        // 1) Empty map must have null head/tail and no buckets
+        // 1. Empty map must have null head/tail and no buckets
         if (size_ == 0) {
             if (head_ || tail_)
                 throw std::runtime_error("Empty map must have null head/tail");
@@ -3153,7 +3208,7 @@ public:
             return;
         }
 
-        // 2) Walk the circular list once, checking links and collecting nodes
+        // 2. Walk the circular list once, checking links and collecting nodes
         std::unordered_set<const Node *> seen;
         seen.reserve(size_);
         const Node *cur = head_;
@@ -3180,7 +3235,7 @@ public:
             throw std::runtime_error("Head/Tail pointers not circularly consistent");
         }
 
-        // 3) Walk each bucket chain, ensuring every list node appears exactly once
+        // 3. Walk each bucket chain, ensuring every list node appears exactly once
         size_t bucketCounted = 0;
         for (auto bucketHead : htBaseVector_) {
             for (const Node *n = bucketHead; n; n = n->hashNext_) {
@@ -3238,14 +3293,44 @@ public:
      *
      * @param other  Map to swap with.
      */
-    void swap(DoublyLinkedCircularHashMap &other) noexcept {
-        std::swap(htBaseVector_, other.htBaseVector_);
-        std::swap(head_, other.head_);
-        std::swap(tail_, other.tail_);
-        std::swap(size_, other.size_);
-        std::swap(maxLoadFactor_, other.maxLoadFactor_);
-        std::swap(hashFunc_, other.hashFunc_);
-        std::swap(keyEqFunc_, other.keyEqFunc_);
+    void swap(DoublyLinkedCircularHashMap &other) noexcept(
+        std::is_nothrow_swappable_v<Hash> &&
+        std::is_nothrow_swappable_v<KeyEq> &&
+        (std::allocator_traits<Alloc>::propagate_on_container_swap::value ||
+            std::allocator_traits<Alloc>::is_always_equal::value)) {
+
+        // For simplicity
+        using std::swap;
+
+        // Allocator handling
+        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap:: value) {
+            swap(alloc_, other.alloc_);
+            swap(nodeAlloc_, other.nodeAlloc_);
+            swap(nodePtrAlloc_, other.nodePtrAlloc_);
+            swap(sizeAlloc_, other.sizeAlloc_);
+        } else {
+#ifndef NDEBUG
+            // If allocators are not always equal, we must ensure they are the same
+            if constexpr (!std::allocator_traits<Alloc>::is_always_equal::value) {
+                assert(alloc_ == other.alloc_ &&
+                       "swap() with unequal non-propagating allocators");
+            }
+#endif
+        }
+
+        // Swap all internals
+        swap(htBaseVector_, other.htBaseVector_);
+        swap(bucketSizes_, other.bucketSizes_);
+        swap(head_, other.head_);
+        swap(tail_, other.tail_);
+        swap(size_, other.size_);
+        swap(maxLoadFactor_, other.maxLoadFactor_);
+        swap(hashFunc_, other.hashFunc_);
+        swap(keyEqFunc_, other.keyEqFunc_);
+        swap(rehashCount_, other.rehashCount_);
+        swap(maxBucketSize_, other.maxBucketSize_);
+        swap(largestBucketIdx_, other.largestBucketIdx_);
+
     }
 
     /**
@@ -3254,7 +3339,10 @@ public:
      * @param a  First map.
      * @param b  Second map.
      */
-    friend void swap(DoublyLinkedCircularHashMap &a, DoublyLinkedCircularHashMap &b) noexcept { a.swap(b); }
+    friend void swap(DoublyLinkedCircularHashMap &a, DoublyLinkedCircularHashMap &b)
+    noexcept(noexcept(a.swap(b))) {
+        a.swap(b);
+    }
 
     // ───────────────────────────────────────────────────────────────────────────//
     //  ----- Deprecated functions -----

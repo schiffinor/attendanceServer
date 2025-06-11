@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <iostream>
-#include <vector>
 #include <ranges>
+#include <vector>
 
 void print(const std::vector<int>& v, const std::string_view label)
 {

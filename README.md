@@ -1,2 +1,2 @@
 # attendanceServer
- An attendance server i intend to implement at work
+ An attendance server I intend to implement at work
