@@ -31,8 +31,8 @@ int main() {
                                      16384ul,
                                      32768ul};
 
-    auto poly1 = Poly16<3329ul>(tmp1.begin(), tmp1.end());
-    auto poly2 = Poly16<3329ul>(tmp2.begin(), tmp2.end());
+    const auto poly1 = Poly16<3329ul>(tmp1.begin(), tmp1.end());
+    const auto poly2 = Poly16<3329ul>(tmp2.begin(), tmp2.end());
     auto poly3 = Poly16<3329ul>(0);
     auto poly4 = Poly16<3329ul>(0);
     std::cout << "log_2_n: " << 32 - __builtin_clz(3329ul) << "\n";
@@ -106,13 +106,13 @@ int main() {
     //  Tiny sanity harness – paste into main()
     //---------------------------------------------------
     auto refPoly = [](const std::array<uint16_t, 16> &a, const std::array<uint16_t, 16> &b) -> std::array<int32_t, 16> {
-        constexpr int Q = 3329;
         std::array<int32_t, 16> acc {};
         for (int i = 0; i < 16; ++i)
             for (int j = 0; j < 16; ++j) {
-                int k    = (i + j) & 15;
-                int s    = ((i + j) & 16) ? -1 : 1; // sign flip (x^16 = -1)
-                int prod = s * int(a[i]) * int(b[j]);
+                constexpr int Q = 3329;
+                const int k    = (i + j) & 15;
+                const int s    = ((i + j) & 16) ? -1 : 1; // sign flip (x^16 = -1)
+                const int prod = s * static_cast<int>(a[i]) * static_cast<int>(b[j]);
                 acc[k]   = (acc[k] + prod) % Q; // true mod, may be negative
                 if (acc[k] < -Q)
                     acc[k] += Q; // keep in (-Q,Q)
@@ -120,7 +120,7 @@ int main() {
         return acc;
     };
 
-    auto ref = refPoly(poly1.v, poly2.v); // ground-truth
+    const auto ref = refPoly(poly1.v, poly2.v); // ground-truth
 
     // run your current multiply (already prints accumulator)
     Poly16<3329>::mult_schoolbook(poly1, poly2, poly4);
@@ -128,13 +128,13 @@ int main() {
     // now dump ref and diff
     std::cout << "\n\nidx  ref  acc  diff\n";
     for (int i = 0; i < 16; ++i) {
-        int32_t accVal = poly4.v[i]; // after reduction
+        const int32_t accVal = poly4.v[i]; // after reduction
         std::cout << i << ' ' << ref[i] << ' ' << accVal << ' ' << (accVal - ref[i]) << "\n";
     }
 
     // lets do another test with just 1 1 1 ... 1 for both polys
-    simd::Poly<16, 3329ul> poly5(1);
-    simd::Poly<16, 3329ul> poly6(1);
+    const simd::Poly<16, 3329ul> poly5(1);
+    const simd::Poly<16, 3329ul> poly6(1);
     simd::Poly<16, 3329ul> poly7(0);
     std::cout << "\n\nTesting with 1 1 1 ... 1 for both polys\n";
     std::cout << "Poly5: ";
@@ -167,7 +167,7 @@ int main() {
     std::cout << "NEG_ADJ_64: " << detail::NEG_ADJ_64<3329ul> << "\n";
 
     // Test reduce_vec_s64
-    std::array<std::int64_t, 16> testVec = {10000, -10000, 5000, -5000, 2000, -2000, 1000, -1000,
+    constexpr std::array<std::int64_t, 16> testVec = {10000, -10000, 5000, -5000, 2000, -2000, 1000, -1000,
                                              500, -500, 250, -250, 125, -125, 62, -62};
     // Display the original test vector
     std::cout << "\nOriginal test vector:\n";
@@ -184,4 +184,4 @@ int main() {
 
 
     return 0;
-}
+};

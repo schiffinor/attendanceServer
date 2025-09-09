@@ -16,6 +16,9 @@
 #include <numeric>
 #include <type_traits>
 
+// put these once near your includes
+#include <cinttypes>
+#include <cstdio>
 
 /**
  *
@@ -23,17 +26,98 @@
 namespace simd {
 using u64 = std::uint64_t;
 
+namespace debug {
+    static void print_u64x4(const char *lbl, const __m256i v) {
+        alignas(32) uint64_t t[4];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        std::printf("%s u64x4 : [%016llx | %016llx | %016llx | %016llx]\n",
+                    lbl,
+                    static_cast<unsigned long long>(t[0]),
+                    static_cast<unsigned long long>(t[1]),
+                    static_cast<unsigned long long>(t[2]),
+                    static_cast<unsigned long long>(t[3]));
+    }
+
+    static void print_s64x4(const char *lbl, const __m256i v) {
+        alignas(32) int64_t t[4];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        std::printf("%s s64x4 : [%lld | %lld | %lld | %lld]\n",
+                    lbl,
+                    static_cast<long long>(t[0]),
+                    static_cast<long long>(t[1]),
+                    static_cast<long long>(t[2]),
+                    static_cast<long long>(t[3]));
+    }
+
+    static void print_u32x8_256(const char *lbl, const __m256i v) {
+        alignas(32) uint32_t t[8];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        std::printf("%s u32x8 : [%08x %08x %08x %08x | %08x %08x %08x %08x]\n",
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7]);
+    }
+
+    static void print_u32x4_128(const char *lbl, const __m128i v) {
+        alignas(16) uint32_t t[4];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        std::printf("%s u32x4 : [%08x %08x %08x %08x]\n", lbl, t[0], t[1], t[2], t[3]);
+    }
+
+    static void print_u16x16(const char *lbl, const __m256i v) {
+        alignas(32) uint16_t t[16];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        std::printf("%s u16x16: [%04x %04x %04x %04x %04x %04x %04x %04x | "
+                    "%04x %04x %04x %04x %04x %04x %04x %04x]\n",
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7],
+                    t[8],
+                    t[9],
+                    t[10],
+                    t[11],
+                    t[12],
+                    t[13],
+                    t[14],
+                    t[15]);
+    }
+
+    // ReSharper disable once CppDFAConstantParameter
+    static void print_u16x8_128(const char *lbl, const __m128i v) {
+        alignas(16) uint16_t t[8];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        std::printf("%s u16x8 : [%04x %04x %04x %04x | %04x %04x %04x %04x]\n",
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7]);
+    }
+} // namespace debug
+
 static constexpr unsigned char operator""_uc(const unsigned long long arg) noexcept {
     return static_cast<unsigned char>(arg);
 }
 
-static constexpr char operator""_c(const unsigned long long arg) noexcept {
-    return static_cast<char>(arg);
-}
+static constexpr char operator""_c(const unsigned long long arg) noexcept { return static_cast<char>(arg); }
 
-static constexpr long long operator""_ll(const unsigned long long arg) noexcept {
-    return static_cast<long long>(arg);
-}
+static constexpr long long operator""_ll(const unsigned long long arg) noexcept { return static_cast<long long>(arg); }
 
 //
 inline void cpuid(int out[4], int leaf, int sub = 0) noexcept {
@@ -45,18 +129,18 @@ inline void cpuid(int out[4], int leaf, int sub = 0) noexcept {
     out[3] = edx;
 }
 
-enum class Level : int { SSE2 = 0, AVX2 = 1 };
+enum class Level : int { SSE42 = 0, AVX2 = 1 };
 
 inline Level detect() noexcept {
     int regs[4];
     cpuid(regs, 0);
     if (regs[0] < 7) {
-        return Level::SSE2; // No AVX2 support
+        return Level::SSE42; // No AVX2 support
     }
 
     cpuid(regs, 7, 0);
     const bool avx2_supported = regs[1] & (1 << 5);
-    return avx2_supported ? Level::AVX2 : Level::SSE2;
+    return avx2_supported ? Level::AVX2 : Level::SSE42;
 }
 
 inline Level active() noexcept {
@@ -169,7 +253,7 @@ namespace detail {
      */
     template<std::uint32_t Q>
     [[nodiscard]]
-    constexpr std::uint16_t reduce(std::uint32_t x) {
+    constexpr std::uint16_t reduce(const std::uint32_t x) {
         const std::uint64_t t = (static_cast<std::uint64_t>(x) * detail::BARRETT_MU<Q>) >> 32;
         auto r                = static_cast<std::int32_t>(x - t * Q);
         r -= static_cast<std::int32_t>(Q);
@@ -331,20 +415,19 @@ namespace kernels {
         const __m128i hi_hi = _mm_mul_epu32(A_hi, B_hi); // high×high
 
         // sum cross-terms (fits in 64 bits before shifting)
-        const __m128i cross      = _mm_add_epi64(lo_hi, hi_lo);
-        const __m128i cross_hi   = _mm_srli_epi64(cross, 32);
-        const __m128i cross_lo   = _mm_and_si128(cross, mask32);
+        const __m128i cross        = _mm_add_epi64(lo_hi, hi_lo);
+        const __m128i cross_hi     = _mm_srli_epi64(cross, 32);
+        const __m128i cross_lo     = _mm_and_si128(cross, mask32);
         const __m128i cross_lo_shl = _mm_slli_epi64(cross_lo, 32);
 
         // now compute low-half sum to detect carry
-        const __m128i sum_lo     = _mm_add_epi64(lo_lo, cross_lo_shl);
+        const __m128i sum_lo = _mm_add_epi64(lo_lo, cross_lo_shl);
         // carry if lo_lo + … overflowed: sum_lo < lo_lo
         const __m128i carry_mask = _mm_cmpgt_epi64(lo_lo, sum_lo);
         const __m128i carry      = _mm_and_si128(carry_mask, one64);
 
         // final high 64 bits = hi_hi + cross_hi + carry
-        return _mm_add_epi64( hi_hi,
-                 _mm_add_epi64(cross_hi, carry) );
+        return _mm_add_epi64(hi_hi, _mm_add_epi64(cross_hi, carry));
     }
 
     // Emulate _mm256_mullo_epu64 on SSE: low  64 bits of each 64×64→128 product
@@ -401,7 +484,7 @@ namespace kernels {
 #endif
 
 #if defined(__SSE4_2__)
-    inline __m128i unsigned_gt(__m128i a, __m128i b) { // SSE2 helper
+    inline __m128i unsigned_gt(const __m128i a, const __m128i b) { // SSE2 helper
         return _mm_cmpgt_epi32(_mm_xor_si128(b, _mm_set1_epi32(static_cast<int>(0x8000'0000))),
                                _mm_xor_si128(a, _mm_set1_epi32(static_cast<int>(0x8000'0000))));
     }
@@ -427,7 +510,7 @@ namespace kernels {
 #endif
 
 #if defined(__AVX2__)
-    template<std::uint32_t Q, std::size_t N>
+    template<std::uint32_t Q, std::size_t N, bool DEBUG = false>
     void reduce_s64_avx2(const std::int64_t *in, std::uint16_t *out) noexcept {
         using C = detail::barrett_s64_consts<Q>;
 
@@ -442,10 +525,23 @@ namespace kernels {
             const __m256i m_low  = _mm256_cmpgt_epi64(C::zero_256, x_low);  // mask for low lanes
             const __m256i m_high = _mm256_cmpgt_epi64(C::zero_256, x_high); // mask for high lanes
 
+            // inputs and masks
+            if constexpr (DEBUG) {
+                debug::print_s64x4("x_low         ", x_low);
+                debug::print_s64x4("x_high        ", x_high);
+                debug::print_u64x4("m_low (mask)  ", m_low);
+                debug::print_u64x4("m_high(mask)  ", m_high);
+            }
             // 3. ux = bitcast(x) as unsigned 64-bit integers
             //    pre_mod = ux - (negAdj & mask)
             const __m256i p_low  = _mm256_sub_epi64(x_low, _mm256_and_si256(C::negAdj_256, m_low));
             const __m256i p_high = _mm256_sub_epi64(x_high, _mm256_and_si256(C::negAdj_256, m_high));
+
+            // pre_mod
+            if constexpr (DEBUG) {
+                debug::print_u64x4("p_low         ", p_low);
+                debug::print_u64x4("p_high        ", p_high);
+            }
 
             // 4. Multiply by MU64 -> high 64 bits of 64*64=128 product
 
@@ -457,15 +553,25 @@ namespace kernels {
             const __m256i tq_high = mm256_mullo_epu64(t64_high, C::Q256_64); // t * Q for high lanes
 
 
+            // t and t*Q
+            if constexpr (DEBUG) {
+                debug::print_u64x4("t64_low       ", t64_low);
+                debug::print_u64x4("t64_high      ", t64_high);
+                debug::print_u64x4("tq_low        ", tq_low);
+                debug::print_u64x4("tq_high       ", tq_high);
+            }
+
             const __m256i r_low  = _mm256_sub_epi64(p_low, tq_low);
             const __m256i r_high = _mm256_sub_epi64(p_high, tq_high);
+
 
             // Since there is no greater than or equal to comparison for 64-bit integers in AVX2,
             // we will use a trick:
             // We will switch the order of r and q in _mm256_cmpgt_epi64 and then negate the result.
-            const __m256i gt_mask_low   = _mm256_cmpgt_epi64(C::Q256_64, r_low);         // r < Q
-            const __m256i gt_mask_high  = _mm256_cmpgt_epi64(C::Q256_64, r_high);        // r < Q
-            const __m256i f_mask_ge_low = _mm256_xor_si256(gt_mask_low, C::neg_one_256); // 0x0000...0001 if r < Q, else 0
+            const __m256i gt_mask_low  = _mm256_cmpgt_epi64(C::Q256_64, r_low);  // r < Q
+            const __m256i gt_mask_high = _mm256_cmpgt_epi64(C::Q256_64, r_high); // r < Q
+            const __m256i f_mask_ge_low =
+                    _mm256_xor_si256(gt_mask_low, C::neg_one_256); // 0x0000...0001 if r < Q, else 0
             const __m256i f_mask_ge_high =
                     _mm256_xor_si256(gt_mask_high, C::neg_one_256); // 0x0000...0001 if r < Q, else 0
             const __m256i a_mask_low =
@@ -476,14 +582,38 @@ namespace kernels {
             const __m256i r_final_low  = _mm256_sub_epi64(r_low, a_mask_low);
             const __m256i r_final_high = _mm256_sub_epi64(r_high, a_mask_high);
 
+            // r and final r
+            if constexpr (DEBUG) {
+                debug::print_u64x4("r_low         ", r_low);
+                debug::print_u64x4("r_high        ", r_high);
+                debug::print_u64x4("r_final_low   ", r_final_low);
+                debug::print_u64x4("r_final_high  ", r_final_high);
+            }
+
             // 9. Pack the results into 16-bit integers
             // 9.a. Convert the 64-bit results to 32-bit integers
-            const __m256i r32_low  = _mm256_castsi128_si256(cvtepi64_epi32_avx(r_final_low));
-            const __m256i r32_high = _mm256_castsi128_si256(cvtepi64_epi32_avx(r_final_high));
+            const __m128i r32_low  = cvtepi64_epi32_avx(r_final_low);
+            const __m128i r32_high = cvtepi64_epi32_avx(r_final_high);
+
+            if constexpr (DEBUG) {
+                debug::print_u32x4_128("r32_low       ", r32_low);
+                debug::print_u32x4_128("r32_high      ", r32_high);
+            }
+
             // 9.d) pack 4×32→8×16 and store
-            const __m256i r16 = _mm256_packus_epi32(r32_low, r32_high); // 8×u16
-            _mm256_storeu_si256(reinterpret_cast<__m256i *>(out + i), r16);
+            const __m128i r16 = _mm_packus_epi32(r32_low, r32_high); // 8×u16
+
+            if constexpr (DEBUG) {
+                debug::print_u16x8_128("r16           ", r16);
+            }
+
+            _mm_storeu_si128(reinterpret_cast<__m128i *>(out + i), r16);
         }
+    }
+
+    template<std::uint32_t Q, std::size_t N>
+    void reduce_s64_avx2_dbg(const int64_t *in, uint16_t *out) {
+        reduce_s64_avx2<Q, N, true>(in, out);
     }
 #endif
 
@@ -524,11 +654,13 @@ namespace kernels {
             // Since there is no greater than or equal to comparison for 64-bit integers in AVX2,
             // we will use a trick:
             // We will switch the order of r and q in _mm256_cmpgt_epi64 and then negate the result.
-            const __m128i gt_mask_low    = _mm_cmpgt_epi64(C::Q128_64, r_low);          // r < Q
-            const __m128i gt_mask_high   = _mm_cmpgt_epi64(C::Q128_64, r_high);         // r < Q
-            const __m128i f_mask_ge_low  = _mm_xor_si128(gt_mask_low, C::neg_one_128);  // 0x0000...0001 if r < Q, else 0
-            const __m128i f_mask_ge_high = _mm_xor_si128(gt_mask_high, C::neg_one_128); // 0x0000...0001 if r < Q, else 0
-            const __m128i a_mask_low = _mm_and_si128(C::Q128_64, f_mask_ge_low); // if r < Q, then a_mask_low = Q, else 0
+            const __m128i gt_mask_low   = _mm_cmpgt_epi64(C::Q128_64, r_low);         // r < Q
+            const __m128i gt_mask_high  = _mm_cmpgt_epi64(C::Q128_64, r_high);        // r < Q
+            const __m128i f_mask_ge_low = _mm_xor_si128(gt_mask_low, C::neg_one_128); // 0x0000...0001 if r < Q, else 0
+            const __m128i f_mask_ge_high =
+                    _mm_xor_si128(gt_mask_high, C::neg_one_128); // 0x0000...0001 if r < Q, else 0
+            const __m128i a_mask_low =
+                    _mm_and_si128(C::Q128_64, f_mask_ge_low); // if r < Q, then a_mask_low = Q, else 0
             const __m128i a_mask_high =
                     _mm_and_si128(C::Q128_64, f_mask_ge_high); // if r < Q, then a_mask_high = Q, else 0
 
@@ -589,16 +721,16 @@ namespace kernels {
     }
 
     /* Wrapper that reduces N uint32’s → uint16’s */
-    template<std::uint32_t Q, std::size_t N>
+    template<std::uint32_t Q, std::size_t N, bool DEBUG = false>
     void reduce_vec_s64(const std::int64_t *in, std::uint16_t *out) noexcept {
 #if defined(__AVX2__)
         if (active() == Level::AVX2 && (N % 8) == 0) {
-            kernels::reduce_s64_avx2<Q, N>(in, out);
+            kernels::reduce_s64_avx2<Q, N, DEBUG>(in, out);
             return;
         }
 #endif
 #if defined(__SSE4_2__)
-        if (active() == Level::SSE2 && (N % 4) == 0) {
+        if ((N % 4) == 0) {
             kernels::reduce_s64_sse<Q, N>(in, out);
             return;
         }
@@ -687,23 +819,26 @@ public:
         using namespace kernels;
         if (active() == Level::AVX2) {
 #if defined(__AVX2__)
-            add_mod_avx2<N, Q>(a.v.data(), b.v.data(), result.v.data());
-#endif
+            add_mod_avx2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // AVX2 path
+#else
 #if defined(__SSE4_2__)
             add_mod_sse2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // fallback for non-AVX2
-#endif
+#else
             add_schoolbook(a, b, result); // fallback for non-SSE4.2 or AVX2
-        } else if (active() == Level::SSE2) {
+#endif
+#endif
+        } else if (active() == Level::SSE42) {
 #if defined(__SSE4_2__)
             add_mod_sse2<N, Q>(a.v.data(), b.v.data(), result.v.data());
-#endif
+#else
             add_schoolbook(a, b, result); // fallback for non-SSE4.2
+#endif
         } else {
             add_schoolbook(a, b, result);
         }
     }
 
-    static void add_schoolbook(const Poly &a, Poly &b, Poly &result) noexcept {
+    static void add_schoolbook(const Poly &a, const Poly &b, Poly &result) noexcept {
         for (std::size_t i = 0; i < N; ++i) {
             result.v[i] = detail::reduce<Q>(static_cast<std::uint32_t>(a.v[i] + b.v[i]));
         }
@@ -713,10 +848,10 @@ public:
     /* ------------------------------------------------------------------ */
     /*  O(N²) school-book multiply (reference / test path)                */
     /* ------------------------------------------------------------------ */
-    static void mult_schoolbook(const Poly &a, const Poly &b, Poly &out, bool debug = false) noexcept {
+    static void mult_schoolbook(const Poly &a, const Poly &b, Poly &out, const bool debug = false) noexcept {
         constexpr std::size_t log_n = std::countr_zero(N); // N power–of-two
 
-        std::array<std::uint32_t, N> accumulator{}; // signed
+        std::array<std::int64_t, N> accumulator {}; // signed
 
         /* 1.  accumulate with per-step Barrett                                    */
         for (std::size_t i = 0; i < N; ++i) {
@@ -737,9 +872,10 @@ public:
                 // if (debug) std::cout << "\nprod: " << prod;
                 // check value of acc[k] is in range [-Q, Q)
                 // if (debug) std::cout << "\nacc[" << k << "]: " << acc[k];
-                accumulator[k] = detail::barrett_s64<Q>(static_cast<int64_t>(accumulator[k]) + prod); // |acc| < Q
-                // check value of acc[k] is in range [-Q, Q)
-                // if (debug) std::cout << "\nacc[" << k << "] after reduce: " << acc[k];
+                accumulator[k] = accumulator[k] + static_cast<std::int64_t>(prod);
+                // accumulator[k] = detail::barrett_s64<Q>(static_cast<int64_t>(accumulator[k]) + prod); // |acc| < Q
+                //  check value of acc[k] is in range [-Q, Q)
+                //  if (debug) std::cout << "\nacc[" << k << "] after reduce: " << acc[k];
             }
         };
 
@@ -752,7 +888,7 @@ public:
             }
 
         /* 3.  SIMD Barrett (inputs already < Q, so this is just a copy)         */
-        kernels::reduce_vec<Q, N>(accumulator.data(), out.v.data());
+        kernels::reduce_vec_s64<Q, N>(accumulator.data(), out.v.data());
     }
 };
 } // namespace simd
