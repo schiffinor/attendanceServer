@@ -217,7 +217,7 @@ http_server(tcp::acceptor& acceptor, tcp::socket& socket)
 }
 
 int
-main(int argc, char* argv[])
+main(const int argc, char* argv[])
 {
     try
     {
