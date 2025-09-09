@@ -190,13 +190,19 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <concepts>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <memory>
+#include <optional>
 #include <ranges>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -217,6 +223,97 @@ concept IntRange = std::ranges::input_range<R> && std::integral<std::ranges::ran
 
 template<typename C>
 concept Reservable = requires(C c, std::size_t n) { c.reserve(n); };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transparent functors & helpers for heterogeneous lookup
+// Drop this above your container class. Requires: <string>, <string_view>,
+// <type_traits>, <functional>, <cstdint>, <cstddef>, <utility>.
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// 1) Tiny helper concept to detect "transparent" functors (like the STL does)
+template<class F, class = void>
+inline constexpr bool is_transparent_v = false;
+
+template<class F>
+inline constexpr bool is_transparent_v<F, std::void_t<typename F::is_transparent>> = true;
+
+// 2) String transparency (safe default for Key = std::string)
+//
+// Canonicalize *everything* to std::string_view for both hashing & equality.
+// That guarantees: if eq(a,b) == true, then hash(a) == hash(b).
+struct TransparentStringHash {
+    using is_transparent = void;
+
+    size_t operator()(const std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+    size_t operator()(const std::string &s) const noexcept { return (*this)(std::string_view{s}); }
+    size_t operator()(const char *s) const noexcept { return (*this)(std::string_view{s}); }
+};
+
+struct TransparentStringEq {
+    using is_transparent = void;
+
+    static bool eq(const std::string_view a, const std::string_view b) noexcept { return a == b; }
+
+    bool operator()(const std::string_view a, const std::string_view b) const noexcept { return eq(a, b); }
+    bool operator()(const std::string &a, const std::string_view b) const noexcept { return eq(a, b); }
+    bool operator()(const std::string_view a, const std::string &b) const noexcept { return eq(a, b); }
+    bool operator()(const std::string &a, const std::string &b) const noexcept { return eq(a, b); }
+    bool operator()(const char *a, const std::string_view b) const noexcept { return eq(std::string_view{a}, b); }
+    bool operator()(const std::string_view a, const char *b) const noexcept { return eq(a, std::string_view{b}); }
+};
+
+// 3) Integral transparency (opt-in, conservative, ≤ 64-bit, excludes bool)
+//
+// Canonicalize both sides to a common integer type for equality,
+// and to an unsigned 64-bit type for hashing. This keeps eq/hash consistent.
+template<class T>
+using decay_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template<class T>
+inline constexpr bool is_i64ish_v =
+        std::is_integral_v<decay_t<T>> && !std::is_same_v<decay_t<T>, bool> && (sizeof(decay_t<T>) <= 8);
+
+struct TransparentIntegral64Eq {
+    using is_transparent = void;
+
+    template<class A, class B>
+        requires(is_i64ish_v<A> && is_i64ish_v<B>)
+    bool operator()(A a, B b) const noexcept {
+        using C = std::common_type_t<decay_t<A>, decay_t<B>>;
+        return static_cast<C>(a) == static_cast<C>(b);
+    }
+    template<class K>
+        requires is_i64ish_v<K>
+    bool operator()(K a, K b) const noexcept {
+        return a == b;
+    }
+};
+
+struct TransparentIntegral64Hash {
+    using is_transparent = void;
+
+    template<class A>
+        requires is_i64ish_v<A>
+    size_t operator()(A a) const noexcept {
+        using C = std::common_type_t<decay_t<A>, unsigned long long>;
+        using U = std::make_unsigned_t<C>;
+        return std::hash<U>{}(static_cast<U>(a));
+    }
+};
+
+// 4) Convenience meta: default hash/equal for your container
+//    - If Key == std::string -> use transparent string functors by default
+//    - Otherwise -> stick to the standard typed functors (no hetero by default)
+template<class Key>
+using DefaultHashForKey = std::conditional_t<std::is_same_v<Key, std::string>, TransparentStringHash, std::hash<Key>>;
+
+template<class Key>
+using DefaultEqForKey = std::conditional_t<std::is_same_v<Key, std::string>, TransparentStringEq, std::equal_to<Key>>;
+
+// 5) Tiny helper concept used to enable hetero overloads only when functors are transparent
+template<class H, class E>
+concept TransparentPair = is_transparent_v<H> && is_transparent_v<E>;
 
 
 /**
@@ -247,8 +344,8 @@ concept Reservable = requires(C c, std::size_t n) { c.reserve(n); };
  */
 template<typename Key,
          typename Value,
-         typename Hash  = std::hash<Key>,
-         typename KeyEq = std::equal_to<Key>,
+         typename Hash  = DefaultHashForKey<Key>, // transparent for std::string keys, else std::hash<Key>
+         typename KeyEq = DefaultEqForKey<Key>,   // transparent for std::string keys, else std::equal_to<Key>
          typename Alloc = std::allocator<std::pair<const Key, Value>>>
 class DoublyLinkedCircularHashMap {
     // ───────────────────────────────────────────────────────────────────────────//
@@ -267,27 +364,41 @@ class DoublyLinkedCircularHashMap {
      * @tparam Value Type of the value associated with the key.
      */
     struct Node;
+
+public:
     using allocator_type = Alloc;
     template<typename T>
-    using rebind_t           = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
-    using node_allocator_t   = rebind_t<Node>;
+    using rebind_t             = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
+    using node_allocator_t     = rebind_t<Node>;
     using node_ptr_allocator_t = rebind_t<Node *>;
-    using size_t_allocator_t = rebind_t<size_t>;
+    using size_t_allocator_t   = rebind_t<size_t>;
+    using value_type           = std::pair<const Key, Value>;
+    using reference            = value_type &;
+    using const_reference      = const value_type &;
+    using pointer              = typename std::allocator_traits<Alloc>::pointer;
+    using const_pointer        = typename std::allocator_traits<Alloc>::const_pointer;
+    using difference_type      = typename std::allocator_traits<Alloc>::difference_type;
+    using size_type            = typename std::allocator_traits<Alloc>::size_type;
 
+private:
     Alloc alloc_;
     node_allocator_t nodeAlloc_;
     node_ptr_allocator_t nodePtrAlloc_;
     size_t_allocator_t sizeAlloc_;
 
     struct alignas(64) Node {
-        Key key_;     /**< The key for this node. Immutable after construction. */
-        Value value_; /**< The value mapped to key_. Move-constructed for efficiency. */
+        value_type kv_; // The key-value pair stored in this node.
+                        // Key is immutable after construction.
+                        // Value is mutable and move-constructed for efficiency.
+        //----- Aliases to preserve syntax -----
+        const Key &key_ = kv_.first;  // Immutable alias to the key.
+        Value &value_   = kv_.second; // Mutable alias to the value.
         //----- Circular doubly-linked list pointers (maintain insertion order) -----
-        Node *next_; /**< Next node in insertion order; wraps around to head_ if at tail_. */
-        Node *prev_; /**< Previous node in insertion order; wraps to tail_ if at head_. */
+        Node *next_; // Next node in insertion order; wraps around to head_ if at tail_.
+        Node *prev_; // Previous node in insertion order; wraps to tail_ if at head_.
         //----- Hash bucket chaining pointers (for collision resolution) -----
-        Node *hashNext_; /**< Next node in the same hash bucket chain. nullptr if last in bucket. */
-        Node *hashPrev_; /**< Previous node in the same hash bucket chain. nullptr if first in bucket. */
+        Node *hashNext_; // Next node in the same hash bucket chain. nullptr if last in bucket.
+        Node *hashPrev_; // Previous node in the same hash bucket chain. nullptr if first in bucket.
         /**
          * @brief Construct a new Node with given key and value.
          *
@@ -298,37 +409,43 @@ class DoublyLinkedCircularHashMap {
          * @param value  The value to store (moved for efficiency).
          */
         Node(const Key &key, Value value)
-            : key_(key),
-              value_(std::move(value)),
-              next_(this),        // Self-referential: node is its own next in empty list
-              prev_(this),        // Self-referential: node is its own prev in empty list
-              hashNext_(nullptr), // Not in a bucket yet
+            : kv_(key, std::move(value)), // Copy key, move value
+              next_(this),                // Self-referential: node is its own next in empty list
+              prev_(this),                // Self-referential: node is its own prev in empty list
+              hashNext_(nullptr),         // Not in a bucket yet
               hashPrev_(nullptr) {
             // No further initialization needed—ready to be linked in
         }
-    };
 
+        // Disallow copying/moving to catch future mistakes:
+        Node(const Node &)            = delete;
+        Node &operator=(const Node &) = delete;
+        Node(Node &&)                 = delete;
+        Node &operator=(Node &&)      = delete;
+    };
+    static_assert(!std::is_copy_assignable_v<Node>);
+    static_assert(!std::is_move_assignable_v<Node>);
 
     // ────────────────────────────────────────────────────────────────────────//
     //----- Internal data members for DoublyLinkedCircularHashMap -----
 
     std::vector<Node *, node_ptr_allocator_t> htBaseVector_;
-    /**< Heads of each hash bucket chain. Size = number of buckets. */
+    // Heads of each hash bucket chain. Size = number of buckets.
     std::vector<size_t, size_t_allocator_t> bucketSizes_;
-    /**< Number of nodes currently in each bucket, for diagnostics. */
+    // Number of nodes currently in each bucket, for diagnostics.
 
-    Node *head_  = nullptr; /**< First node in insertion order; nullptr if map is empty. */
-    Node *tail_  = nullptr; /**< Last node in insertion order; nullptr if map is empty. */
-    size_t size_ = 0;       /**< Total number of elements currently in the map. */
+    Node *head_  = nullptr; // First node in insertion order; nullptr if map is empty.
+    Node *tail_  = nullptr; // Last node in insertion order; nullptr if map is empty.
+    size_t size_ = 0;       // Total number of elements currently in the map.
 
-    double maxLoadFactor_ = 1.0; /**< Threshold (size_/bucket_count_) to trigger rehashing. */
+    double maxLoadFactor_ = 1.0; // Threshold (size_/bucket_count_) to trigger rehashing.
 
-    std::function<size_t(const Key &)> hashFunc_; /**< User-specified or default hash functor (std::hash). */
-    std::function<bool(const Key &, const Key &)> keyEqFunc_; /**< Equality comparator for Key. */
+    Hash hashFunc_{};   // Hash functor instance for computing bucket indices.
+    KeyEq keyEqFunc_{}; // Equality functor instance for key comparisons.
 
-    size_t rehashCount_      = 0;        /**< Number of times the table has been rehashed. Useful for profiling. */
-    size_t maxBucketSize_    = 0;        /**< Largest bucket size observed since last rehash. */
-    size_t largestBucketIdx_ = SIZE_MAX; /**< Index of the bucket that currently has maxBucketSize_. */
+    size_t rehashCount_      = 0;        // Number of times the table has been rehashed. Useful for profiling.
+    size_t maxBucketSize_    = 0;        // Largest bucket size observed since last rehash.
+    size_t largestBucketIdx_ = SIZE_MAX; // Index of the bucket that currently has maxBucketSize_.
 
     // ────────────────────────────────────────────────────────────────────────//
     //----- Private helpers -----
@@ -404,7 +521,8 @@ class DoublyLinkedCircularHashMap {
      * @return Index in htBaseVector_ after hashing and modulo.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &>
+        requires std::invocable<const Hash &, const K2 &>
+    [[nodiscard]]
     size_t bucketIndex_(const K2 &k) const {
         return hashFunc_(k) % htBaseVector_.size();
     }
@@ -421,24 +539,23 @@ class DoublyLinkedCircularHashMap {
      * if this bucket grows beyond the old max, updates maxBucketSize_ and
      * largestBucketIdx_.
      */
-    void bucketInsert_(
-        Node *node,
-        std::vector<Node *, node_ptr_allocator_t> &bucket,
-        std::vector<size_t, size_t_allocator_t> &bucketSizes,
-        size_t &maxBucketSize,
-        size_t &largestBucketIdx) {
+    void bucketInsert_(Node *node,
+                       std::vector<Node *, node_ptr_allocator_t> &bucket,
+                       std::vector<size_t, size_t_allocator_t> &bucketSizes,
+                       size_t &maxBucketSize,
+                       size_t &largestBucketIdx) {
         auto idx   = hashFunc_(node->key_) % bucket.size();
         Node *head = bucket[idx];
         if (!head) {
             // Empty bucket → node stands alone.
-            bucket[idx] = node;
+            bucket[idx]     = node;
             node->hashNext_ = node->hashPrev_ = nullptr;
         } else {
             // Prepend node to existing chain.
-            node->hashNext_    = head;
-            head->hashPrev_    = node;
-            node->hashPrev_    = nullptr;
-            bucket[idx] = node;
+            node->hashNext_ = head;
+            head->hashPrev_ = node;
+            node->hashPrev_ = nullptr;
+            bucket[idx]     = node;
         }
         ++bucketSizes[idx]; // Keep the count honest.
         // Track maximum chain length.
@@ -581,8 +698,8 @@ class DoublyLinkedCircularHashMap {
         }
 
         // Swap in the new table and sizes.
-        htBaseVector_  = std::move(newTable);
-        bucketSizes_   = std::move(newBucketSizes);
+        htBaseVector_     = std::move(newTable);
+        bucketSizes_      = std::move(newBucketSizes);
         maxBucketSize_    = newMaxBucketSize_;
         largestBucketIdx_ = newLargestBucketIdx_;
 
@@ -594,6 +711,10 @@ class DoublyLinkedCircularHashMap {
 
     // ----- Pointer walking functions -----
 
+    // make public if debug
+#ifndef NDEBUG
+public:
+#endif
     /**
      * @brief Advances a single pointer forward or backward, with cache hints.
      * @param start   Starting node.
@@ -603,6 +724,10 @@ class DoublyLinkedCircularHashMap {
      * @note Uses __builtin_prefetch to hint CPU caching.
      */
     static Node *walk(Node *__restrict__ start, int steps, bool forward) noexcept {
+        if (steps < 0) {
+            forward = !forward;
+            steps   = -steps;
+        }
         while (steps--) {
             start = forward ? start->next_ : start->prev_;
         }
@@ -621,13 +746,22 @@ class DoublyLinkedCircularHashMap {
     template<typename Container>
     static Container multi_walk(const Container &starts, int steps, bool forward) noexcept {
         Container cur = starts; // copy to avoid mutating caller data
-        while (--steps) {
+        if (steps < 0) {
+            forward = !forward;
+            steps   = -steps;
+        }
+        while (steps--) {
             for (auto &n : cur) {
                 n = forward ? n->next_ : n->prev_;
             }
         }
         return cur;
     }
+
+#ifndef NDEBUG
+private:
+#endif
+
 
     // ───────────────────────────────────────────────────────────────────────────//
 
@@ -640,12 +774,11 @@ class DoublyLinkedCircularHashMap {
      * Transfers ownership of all internal data structures. The source map
      * is left in a valid but empty state.
      */
-    void steal_from(DoublyLinkedCircularHashMap &&src) noexcept(
-        noexcept(htBaseVector_ = std::move(src.htBaseVector_)) &&
-        noexcept(bucketSizes_ = std::move(src.bucketSizes_)) &&
-        noexcept(hashFunc_ = std::move(src.hashFunc_)) &&
-        noexcept(keyEqFunc_ = std::move(src.keyEqFunc_)))
-            {
+    void steal_from(DoublyLinkedCircularHashMap &&src)
+            noexcept(noexcept(htBaseVector_ = std::move(src.htBaseVector_)) &&
+                     noexcept(bucketSizes_ = std::move(src.bucketSizes_)) &&
+                     noexcept(hashFunc_ = std::move(src.hashFunc_)) &&
+                     noexcept(keyEqFunc_ = std::move(src.keyEqFunc_))) {
         htBaseVector_  = std::move(src.htBaseVector_);
         bucketSizes_   = std::move(src.bucketSizes_);
         head_          = std::exchange(src.head_, nullptr);
@@ -657,7 +790,8 @@ class DoublyLinkedCircularHashMap {
     }
 
 public:
-    using NodeType = Node; /**< Alias for Node type, useful in templates. */
+    using NodeType = Node; // Alias for Node type, useful in templates.
+
     // ───────────────────────────────────────────────────────────────────────────//
     //  ----- Constructors and destructors -----
 
@@ -669,26 +803,26 @@ public:
      *
      * @param initBuckets    Initial number of hash buckets (default: 16). Must be > 0.
      * @param maxLoadFactor  Maximum allowed load factor before automatic rehash (default: 1.0).
-     * @param hashFunc       Hash functor to map keys to size_t (default: std::hash<Key>).
-     * @param keyEqFunc      Equality comparator for keys (default: std::equal_to<Key>).
+     * @param hash          Hash functor instance (default-constructed if not provided).
+     * @param keyEq         Key equality functor instance (default-constructed if not provided).
      * @param alloc          Allocator for Node objects (default: std::allocator<Node>).
      */
-    explicit DoublyLinkedCircularHashMap(size_t initBuckets                                      = 16,
-                                         const double maxLoadFactor                              = 1.0,
-                                         std::function<size_t(const Key &)> hashFunc             = std::hash<Key>(),
-                                         std::function<bool(const Key &, const Key &)> keyEqFunc = std::equal_to<Key>(),
-                                         const Alloc &alloc                                      = Alloc {})
+    explicit DoublyLinkedCircularHashMap(size_t initBuckets         = 16,
+                                         const double maxLoadFactor = 1.0,
+                                         Hash hash                  = Hash{},  // default-constructed hash functor
+                                         KeyEq keyEq                = KeyEq{}, // default-constructed equality functor
+                                         const Alloc &alloc         = Alloc{})
         : alloc_(alloc),
           nodeAlloc_(alloc), // all buckets start empty
           nodePtrAlloc_(alloc),
           sizeAlloc_(alloc),
           htBaseVector_(initBuckets, nullptr, nodePtrAlloc_), // track 0 elements per bucket
-          bucketSizes_(initBuckets, 0, sizeAlloc_),        // empty list → no head
-          head_(nullptr),                                  // empty list → no tail
-          tail_(nullptr),                                  // store user’s max load factor
-          maxLoadFactor_(maxLoadFactor),                   // move-in hash functor
-          hashFunc_(std::move(hashFunc)),                  // move-in equality functor
-          keyEqFunc_(std::move(keyEqFunc))                 // empty map → no rehashes yet
+          bucketSizes_(initBuckets, 0, sizeAlloc_),           // empty list → no head
+          head_(nullptr),                                     // empty list → no tail
+          tail_(nullptr),                                     // store user’s max load factor
+          maxLoadFactor_(maxLoadFactor),                      // move-in hash functor
+          hashFunc_(std::move(hash)),                         // move-in equality functor
+          keyEqFunc_(std::move(keyEq))                        // empty map → no rehashes yet
     {
         // Nothing else to do here—size_ and rehashCount_ default to 0.
     }
@@ -717,22 +851,30 @@ public:
      */
     DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other)
         : DoublyLinkedCircularHashMap(
-            other,
-            std::allocator_traits<Alloc>::select_on_container_copy_construction(other.alloc_)
-        ) {
+                  other,
+                  std::allocator_traits<Alloc>::select_on_container_copy_construction(other.alloc_)) {}
 
-    }
-
+    /**
+     * @brief Copy constructor with custom allocator: deep-copies another map’s contents.
+     *
+     * Allocates a fresh bucket array of the same size, then iterates the other map
+     * in insertion order and re-inserts each key/value pair. Load factors and
+     * hash/equality functors are copied. Uses the provided allocator for all
+     * internal allocations.
+     *
+     * @param other Map to copy from.
+     * @param alloc Allocator to use for this map.
+     */
     DoublyLinkedCircularHashMap(const DoublyLinkedCircularHashMap &other, const Alloc &alloc)
-        : alloc_(), // use new allocator
-          nodeAlloc_(alloc),                                              // use new node allocator
-          nodePtrAlloc_(alloc),                                          // use new node pointer allocator
-          sizeAlloc_(alloc),                                              // use new size allocator
+        : alloc_(),                                                          // use new allocator
+          nodeAlloc_(alloc),                                                 // use new node allocator
+          nodePtrAlloc_(alloc),                                              // use new node pointer allocator
+          sizeAlloc_(alloc),                                                 // use new size allocator
           htBaseVector_(other.htBaseVector_.size(), nullptr, nodePtrAlloc_), // new empty buckets
-          bucketSizes_(other.bucketSizes_.size(), 0, sizeAlloc_),         // new empty buckets
-          maxLoadFactor_(other.maxLoadFactor_), // copy load factor
-          hashFunc_(other.hashFunc_),           // copy functor
-          keyEqFunc_(other.keyEqFunc_)          // copy equality functor
+          bucketSizes_(other.bucketSizes_.size(), 0, sizeAlloc_),            // new empty buckets
+          maxLoadFactor_(other.maxLoadFactor_),                              // copy load factor
+          hashFunc_(other.hashFunc_),                                        // copy functor
+          keyEqFunc_(other.keyEqFunc_)                                       // copy equality functor
     {
         if (other.head_) {
             Node *cur = other.head_;
@@ -759,10 +901,9 @@ public:
         }
 
         // 1. Possibly copy-assign allocators
-        const Alloc& newAlloc =
-            std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value
-                ? other.alloc_
-                : alloc_; // use existing allocator
+        const Alloc &newAlloc = std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value
+                                        ? other.alloc_
+                                        : alloc_; // use existing allocator
 
         DoublyLinkedCircularHashMap tmp(other, newAlloc);
         swap(tmp);
@@ -782,30 +923,28 @@ public:
      * @param other Map to move from.
      */
     DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other)
-    noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
-        : DoublyLinkedCircularHashMap(
-            std::move(other),
-            std::allocator_traits<Alloc>::is_always_equal::value
-                ? std::move(other.alloc_)
-                : Alloc{} // use new allocator if propagating
-            ) {
-    }
+            noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
+        : DoublyLinkedCircularHashMap(std::move(other),
+                                      std::allocator_traits<Alloc>::is_always_equal::value
+                                              ? std::move(other.alloc_)
+                                              : Alloc{} // use new allocator if propagating
+          ) {}
 
     /**
-    * @brief Move constructor with custom allocator: takes ownership of resources from another map.
-    *
-    * Transfers bucket array, list pointers, size, and functors. Leaves other map
-    * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
-    *
-    * @param other Map to move from.
-    * @param alloc New allocator for this map.
-    */
-    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap && other, const Alloc &alloc)
-    noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
-        : alloc_(alloc),     // use new allocator
-          nodeAlloc_(alloc), // use new node allocator
+     * @brief Move constructor with custom allocator: takes ownership of resources from another map.
+     *
+     * Transfers bucket array, list pointers, size, and functors. Leaves other map
+     * in an empty-but-valid state (head_ and tail_ set to nullptr, size_ zero).
+     *
+     * @param other Map to move from.
+     * @param alloc New allocator for this map.
+     */
+    DoublyLinkedCircularHashMap(DoublyLinkedCircularHashMap &&other, const Alloc &alloc)
+            noexcept(std::allocator_traits<Alloc>::is_always_equal::value)
+        : alloc_(alloc),        // use new allocator
+          nodeAlloc_(alloc),    // use new node allocator
           nodePtrAlloc_(alloc), // use new node pointer allocator
-          sizeAlloc_(alloc)  // use new size allocator
+          sizeAlloc_(alloc)     // use new size allocator
     {
         if (std::allocator_traits<Alloc>::is_always_equal::value || alloc_ == other.alloc_) {
             steal_from(std::move(other)); // steal contents
@@ -814,7 +953,7 @@ public:
             reserve(other.size_); // allocate new buckets
             for (auto it = other.begin(); it != other.end(); ++it) {
                 auto [k, v] = *it; // iterator::operator* gives the pair of references
-                insert(k, v); //
+                insert(k, v);      //
             }
             other.clear(); // clear the other map
         }
@@ -829,10 +968,9 @@ public:
      * @param other Map to move-assign from.
      * @return Reference to *this.
      */
-    DoublyLinkedCircularHashMap &operator=(DoublyLinkedCircularHashMap &&other) noexcept(
-        std::allocator_traits<Alloc>::is_always_equal::value ||
-        std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value)
-    {
+    DoublyLinkedCircularHashMap &operator=(DoublyLinkedCircularHashMap &&other)
+            noexcept(std::allocator_traits<Alloc>::is_always_equal::value ||
+                     std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
         if (this == &other) {
             return *this; // self-assignment check
         }
@@ -853,8 +991,8 @@ public:
 
         // 3. Unequal, non-propagating allocators -> deep-move copy
         DoublyLinkedCircularHashMap tmp(std::move(other), alloc_); // move-construct with new alloc
-        swap(tmp); // swap contents with the temporary
-        return *this; // return self-reference
+        swap(tmp);                                                 // swap contents with the temporary
+        return *this;                                              // return self-reference
     }
 
 
@@ -928,22 +1066,16 @@ public:
         if (const auto need = static_cast<size_t>(std::ceil(static_cast<double>(size_) / newMaxLoadFactor));
             need > bucketCount())
         {
-            rehash_(bucketCount());
+            rehash_(need);
         }
     }
 
     // ----- STl required -----
-    using value_type        = std::pair<const Key, Value>;
-    using reference         = value_type&;
-    using const_reference   = const value_type&;
-    using pointer           = typename std::allocator_traits<Alloc>::pointer;
-    using const_pointer     = typename std::allocator_traits<Alloc>::const_pointer;
-    using difference_type   = typename std::allocator_traits<Alloc>::difference_type;
-    using size_type         = typename std::allocator_traits<Alloc>::size_type;
 
-    [[nodiscard]] allocator_type get_allocator() const noexcept { return alloc_; }
-
-
+    [[nodiscard]]
+    allocator_type get_allocator() const noexcept {
+        return alloc_;
+    }
 
 
     // ───────────────────────────────────────────────────────────────────────────//
@@ -998,7 +1130,6 @@ public:
             }
             std::allocator_traits<node_allocator_t>::destroy(nodeAlloc_, head_);
             std::allocator_traits<node_allocator_t>::deallocate(nodeAlloc_, head_, 1); // free head
-
         }
         // Reset internal state
         head_ = tail_ = nullptr;
@@ -1072,13 +1203,12 @@ public:
 
         std::unique_ptr<Node, decltype(deleter)> guardPtr(rawNode, deleter);
 
-        std::allocator_traits<node_allocator_t>::construct(
-            nodeAlloc_,
-            rawNode,
-            std::forward<K>(key),
-            std::forward<V>(value));
+        std::allocator_traits<node_allocator_t>::construct(nodeAlloc_,
+                                                           rawNode,
+                                                           std::forward<K>(key),
+                                                           std::forward<V>(value));
 
-        //4. Add to the hash bucket (no-throw) and commit
+        // 4. Add to the hash bucket (no-throw) and commit
         bucketInsert_(rawNode); // insert into the appropriate bucket
 
         // 5. Insert into the circular list
@@ -1097,7 +1227,7 @@ public:
             }
         }
 
-        ++size_; // increment size after successful insert
+        ++size_;            // increment size after successful insert
         guardPtr.release(); // release ownership to the map
     }
 
@@ -1162,7 +1292,7 @@ public:
         if (Value *pv = find_ptr(key)) {
             return *pv; // Fast path: key already present
         }
-        insert(key, Value {}); // Splice in a default-constructed Value
+        insert(key, Value{}); // Splice in a default-constructed Value
         // Note: default Value may not be thrilling, but it gets the job done
         return *find_ptr(key); // Guaranteed to succeed now
     }
@@ -1210,7 +1340,12 @@ public:
      * @return Reference to the mapped value.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     Value &at(const K2 &key) {
         if (auto p = find_ptr(key)) {
             return *p;
@@ -1227,7 +1362,12 @@ public:
      * @return Const reference to the mapped value.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     const Value &at(const K2 &key) const {
         if (auto p = find_ptr(key)) {
             return *p;
@@ -1272,7 +1412,12 @@ public:
      * @return Pointer to the Node if found, nullptr otherwise.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     Node *find_node(const K2 &key) {
         size_t idx = bucketIndex_(key);
         for (Node *cur = htBaseVector_[idx]; cur; cur = cur->hashNext_) {
@@ -1287,7 +1432,12 @@ public:
      * @brief Const heterogeneous lookup overload.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     const Node *find_node(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_node(key);
     }
@@ -1318,7 +1468,12 @@ public:
      * @brief Heterogeneous find_ptr() for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     Value *find_ptr(const K2 &key) {
         if (Node *n = find_node(key)) {
             return &n->value_;
@@ -1330,7 +1485,12 @@ public:
      * @brief Const heterogeneous find_ptr() overload.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     const Value *find_ptr(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_ptr(key);
     }
@@ -1350,7 +1510,12 @@ public:
      * @brief Heterogeneous contains() for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     [[nodiscard]]
     bool contains(const K2 &key) const {
         return const_cast<DoublyLinkedCircularHashMap *>(this)->find_ptr(key) != nullptr;
@@ -1366,12 +1531,19 @@ public:
      * After changing the hash, we rebuild every bucket to maintain correct distribution.
      *
      * @tparam HF  Hash‐functor type (e.g. lambda, function object, etc.).
-     * @param h    New hash functor; forwarded into hashFunc_.
+     * @param h    New hash functor; moved into hashFunc_.
      */
     template<class HF>
+        requires std::constructible_from<Hash, HF &&> && std::invocable<const std::decay_t<HF> &, const Key &>
     void setHashFunction(HF &&h) {
-        hashFunc_ = std::forward<HF>(h); // swap in new hash
-        rehash_(htBaseVector_.size());   // rebuild buckets under new hash
+        Hash old  = std::move(hashFunc_);
+        hashFunc_ = Hash(std::forward<HF>(h));
+        try {
+            rehash_(htBaseVector_.size()); // rebuild buckets under new hash
+        } catch (...) {
+            hashFunc_ = std::move(old);
+            throw;
+        }
     }
 
     /**
@@ -1385,7 +1557,14 @@ public:
      * @param k     New equality functor; forwarded into keyEqFunc_.
      */
     template<class KEF>
-    void setKeyEqFunction(KEF &&k) {
+        requires std::constructible_from<KeyEq, KEF &&> &&
+                 requires(const std::decay_t<KEF> &eq, const Key &a, const Key &b) {
+                     {
+                         eq(a, b)
+                     } -> std::convertible_to<bool>;
+                 }
+    void setKeyEqFunction(KEF &&k)
+            noexcept(std::is_nothrow_constructible_v<KeyEq, KEF &&> && std::is_nothrow_move_assignable_v<KeyEq>) {
         keyEqFunc_ = std::forward<KEF>(k); // swap in new comparator
     }
 
@@ -1402,14 +1581,16 @@ public:
      * prefix/postfix ++ and --. Reaching past tail_ yields end() (cur == nullptr).
      */
     struct iterator {
-        using iterator_category = std::bidirectional_iterator_tag; /**< STL category tag. */
-        using value_type        = std::pair<const Key &, Value &>; /**< Dereferenced type. */
-        using reference         = value_type;                      /**< Reference alias. */
-        using difference_type   = std::ptrdiff_t;                  /**< Signed distance. */
-        using pointer           = void;                            /**< Pointer unsupported. */
+        using iterator_category = std::bidirectional_iterator_tag;     // STL category tag.
+        using iterator_concept  = std::bidirectional_iterator_tag;     // C++20 iterator concept.
+        using container_type    = DoublyLinkedCircularHashMap;         // Owning container type.
+        using value_type        = typename container_type::value_type; // Dereferenced type.
+        using difference_type   = std::ptrdiff_t;                      // Signed distance.
+        using reference         = value_type &;                        // L-value reference to value_type.
+        using pointer           = value_type *;                        // Pointer to value_type.
 
-        Node *cur;                              /**< Current node; nullptr means end(). */
-        const DoublyLinkedCircularHashMap *map; /**< Owning map, for head_/tail_. */
+        Node *cur                              = nullptr; // Current node; nullptr means end().
+        const DoublyLinkedCircularHashMap *map = nullptr; // Owning map, for head_/tail_.
 
         /**
          * @brief Default-construct an end() iterator.
@@ -1492,25 +1673,36 @@ public:
          * @brief Dereference to access the key/value pair.
          * @return std::pair<const Key&, Value&> of the current element.
          */
-        reference operator*() const { return {cur->key_, cur->value_}; }
+        reference operator*() const { return {cur->kv_}; }
 
+        /**
+         * @brief Arrow operator to access the key/value pair.
+         * @return Pointer to std::pair<const Key&, Value&> of the current element.
+         */
+        pointer operator->() const { return std::addressof(cur->kv_); }
+
+        /**
+         * @brief Allow conversion to const_iterator.
+         */
         explicit operator const_iterator() const noexcept { return const_iterator(cur, this); }
     };
 
-    /**s
+    /**
      * @brief Const bidirectional iterator for insertion-order traversal.
      *
      * Identical behavior to iterator, but yields const Value&.
      */
     struct const_iterator {
-        using iterator_category = std::bidirectional_iterator_tag;       /**< STL category tag. */
-        using value_type        = std::pair<const Key &, const Value &>; /**< Dereferenced type. */
-        using reference         = value_type;                            /**< Reference alias. */
-        using difference_type   = std::ptrdiff_t;                        /**< Signed distance. */
-        using pointer           = void;                                  /**< Pointer unsupported. */
+        using iterator_category = std::bidirectional_iterator_tag;     // STL category tag.
+        using iterator_concept  = std::bidirectional_iterator_tag;     // C++20 iterator concept.
+        using container_type    = DoublyLinkedCircularHashMap;         // Owning container type.
+        using value_type        = typename container_type::value_type; // Dereferenced type.
+        using difference_type   = std::ptrdiff_t;                      // Signed distance.
+        using reference         = const value_type &;                  // L-value reference to value_type.
+        using pointer           = const value_type *;                  // Pointer to value_type.
 
-        const Node *cur;                        /**< Current node; nullptr for end(). */
-        const DoublyLinkedCircularHashMap *map; /**< Owning map pointer. */
+        const Node *cur                        = nullptr; // Current node; nullptr for end().
+        const DoublyLinkedCircularHashMap *map = nullptr; // Owning map pointer, for head_/tail_.
 
         /**
          * @brief Default-construct an end() iterator.
@@ -1593,7 +1785,13 @@ public:
          * @brief Dereference to access the key/value pair.
          * @return std::pair<const Key&, const Value&> of the current element.
          */
-        reference operator*() const { return {cur->key_, cur->value_}; }
+        reference operator*() const { return {cur->kv_}; }
+
+        /**
+         * @brief Arrow operator to access the key/value pair.
+         * @return Pointer to std::pair<const Key&, const Value&> of the current element.
+         */
+        pointer operator->() const { return std::addressof(cur->kv_); }
     };
 
     // Aliases for reverse iteration
@@ -1741,7 +1939,12 @@ public:
      * @return iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     iterator find(const K2 &key) {
         if (Node *found = find_node(key)) {
             return iterator(found, this);
@@ -1757,7 +1960,12 @@ public:
      * @return const_iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     const_iterator find(const K2 &key) const {
         if (const Node *found = find_node(key)) {
             return const_iterator(found, this);
@@ -1773,7 +1981,12 @@ public:
      * @return const_iterator to the element, or end() if not found.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     const_iterator cfind(const K2 &key) const {
         return find(key);
     }
@@ -1827,17 +2040,17 @@ public:
     }
 
     /**
-     * @brief Dequeue: remove and return the front element’s value pointer.
+     * @brief Dequeue: remove and return the front element’s value.
      *
-     * WARNING: The returned pointer refers to memory freed by remove().
-     * Use or copy the value immediately before any further modifications.
-     *
-     * @return Pointer to the old front value (now dangling after removal).
+     * @return Value of old first node.
      */
-    Value *pop_front() {
-        Value *pv = front();             // grab address before removal
-        remove(orderedGetNode(0)->key_); // remove head element
-        return pv;                       // pointer now invalid
+    std::optional<Value> pop_front() {
+        if (empty())
+            return std::nullopt;              // nothing to pop
+        Node *node = head_;                   // grab current head
+        Value val  = std::move(node->value_); // move out the value if movable
+        remove(node->key_);                   // remove the node by key
+        return val;                           // return the value NRVO/move
     }
 
 
@@ -1877,15 +2090,15 @@ public:
     /**
      * @brief Pop the top element off the stack and return its value pointer.
      *
-     * WARNING: The returned pointer refers to memory freed by remove().
-     * Use or copy the value immediately before any further modifications.
-     *
-     * @return Pointer to the old top value (now dangling after removal).
+     * @return Value of old last node, or std::nullopt if empty.
      */
-    Value *pop_back() {
-        Value *pv = bottom();             // grab bottom (since top==front)
-        remove(orderedGetNode(-1)->key_); // remove last element
-        return pv;                        // pointer now invalid
+    std::optional<Value> pop_back() {
+        if (empty())
+            return std::nullopt;              // nothing to pop
+        Node *node = tail_;                   // grab current tail
+        Value val  = std::move(node->value_); // move out the value if movable
+        remove(node->key_);                   // remove the node by key
+        return val;                           // return the value NRVO/move
     }
 
 
@@ -1894,16 +2107,20 @@ public:
 
     // ----- Ordered getters -----
     /**
-     * @brief Retrieve the Node at a given insertion-order index.
+     * Retrieve a node by index or by relative offset, depending on `from`.
      *
-     * Because the list is circular, we first reduce idx modulo size_,
-     * then decide whether it’s shorter to walk forward from head_ or
-     * backward from tail_. Optionally emits debug info.
+     * - Absolute mode (`from == nullptr`):
+     *     `idx` is an insertion-order index. We normalize into [0..size_-1],
+     *     then walk from the nearer end (head_/tail_).
      *
-     * @param idx   Arbitrary integer index (can be negative or out-of-range).
-     * @param from  Optional starting Node; if non-null, we compute steps from here.
-     * @param debug If true, prints diagnostic info to std::cout.
-     * @return Pointer to the Node at that logical position, or nullptr if empty.
+     * - Relative mode (`from != nullptr`):
+     *     `idx` is a signed circular offset from `from`. We normalize modulo size_
+     *     and walk the shorter of `off` vs `size_-off` steps in the appropriate direction.
+     *
+     * @param idx   Absolute index (if from==nullptr) or relative offset (if from!=nullptr).
+     * @param from  Optional starting node for relative mode; nullptr selects absolute mode.
+     * @param debug Emit diagnostics if true.
+     * @return Node* at the target position, or nullptr if empty.
      */
     Node *orderedGetNode(const int idx, Node *from = nullptr, const bool debug = false) {
         if (size_ == 0)
@@ -1952,6 +2169,34 @@ public:
         return cur; // step 5: return result
     }
 
+    // Convenience wrappers
+    /**
+     * @brief Absolute index mode: get Node at insertion-order index.
+     *
+     * Wrapper around orderedGetNode() with from == nullptr.
+     *
+     * @param index Insertion-order index.
+     * @param dbg   Debug flag.
+     * @return Pointer to the Node at that index, or nullptr if empty.
+     */
+    Node* orderedGetNodeAt(const int index, const bool dbg=false) {
+        return orderedGetNode(index, nullptr, dbg);
+    }
+
+    /**
+     * @brief Relative offset mode: get Node at offset from given Node.
+     *
+     * Wrapper around orderedGetNode() with specified from Node.
+     *
+     * @param from   Starting Node.
+     * @param offset Signed circular offset from `from`.
+     * @param dbg    Debug flag.
+     * @return Pointer to the Node at that offset, or nullptr if empty.
+     */
+    Node* orderedGetNodeFrom(Node* from, const int offset, const bool dbg=false) {
+        return orderedGetNode(offset, from, dbg);
+    }
+
     /**
      * @brief Retrieve the value at a given insertion-order index.
      *
@@ -1965,6 +2210,35 @@ public:
     Value *orderedGet(const int idx, Node *from = nullptr, const bool debug = false) {
         return &orderedGetNode(idx, from, debug)->value_;
     }
+
+    // Convenience wrappers
+    /**
+     * @brief Absolute index mode: get Value at insertion-order index.
+     *
+     * Wrapper around orderedGet() with from == nullptr.
+     *
+     * @param index Insertion-order index.
+     * @param dbg   Debug flag.
+     * @return Pointer to the Value at that index, or nullptr if empty.
+     */
+    Value *orderedGetAt(const int index, const bool dbg=false) {
+        return orderedGet(index, nullptr, dbg);
+    }
+
+    /**
+     * @brief Relative offset mode: get Value at offset from given Node.
+     *
+     * Wrapper around orderedGet() with specified from Node.
+     *
+     * @param from   Starting Node.
+     * @param offset Signed circular offset from `from`.
+     * @param dbg    Debug flag.
+     * @return Pointer to the Value at that offset, or nullptr if empty.
+     */
+    Value *orderedGetFrom(Node* from, const int offset, const bool dbg=false) {
+        return orderedGet(offset, from, dbg);
+    }
+
 
 
     // ----- Positional swapping -----
@@ -2052,7 +2326,12 @@ public:
      * Allows swapping by any key-like type K2 that Hash and KeyEq accept.
      */
     template<typename K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void pos_swap_k(const K2 &key1, const K2 &key2) {
         Node *n1 = find_node(key1), *n2 = find_node(key2);
         if (!n1 || !n2)
@@ -2135,7 +2414,12 @@ public:
      * @brief Templated heterogeneous version of move_node_before_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_node_before_n_key(Node *node, const K2 &targetKey) {
         Node *target = find_node(targetKey);
         if (!target) {
@@ -2163,7 +2447,12 @@ public:
      * @brief Templated heterogeneous version of move_node_after_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_node_after_n_key(Node *node, const K2 &targetKey) {
         Node *target = find_node(targetKey);
         if (!target) {
@@ -2184,7 +2473,12 @@ public:
      * @brief Templated heterogeneous alias for move_node_to_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_node_to_key(Node *node, const K2 &targetKey) {
         move_node_before_n_key(node, targetKey);
     }
@@ -2243,7 +2537,12 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_node.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_n_key_to_node(const K2 &key, Node *target) {
         Node *node = find_node(key);
         if (!node) {
@@ -2271,7 +2570,12 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_n_key_to_n_key(const K2 &key1, const K2 &key2) {
         Node *node = find_node(key1);
         if (!node) {
@@ -2299,7 +2603,12 @@ public:
      * @brief Templated heterogeneous version of move_n_key_to_idx.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_n_key_to_idx(const K2 &key, const int targetIdx) {
         Node *node = find_node(key);
         if (!node) {
@@ -2338,7 +2647,12 @@ public:
      * @brief Templated heterogeneous version of move_idx_to_n_key.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void move_idx_to_n_key(const int idx, const K2 &targetKey) {
         Node *node = orderedGetNode(idx);
         if (!node) {
@@ -2423,7 +2737,12 @@ public:
      * @brief Heterogeneous-version of shift_n_key for key-like types.
      */
     template<class K2>
-        requires std::invocable<Hash, const K2 &> && std::invocable<KeyEq, const Key &, const K2 &>
+        requires TransparentPair<Hash, KeyEq> && std::invocable<const Hash &, const K2 &> &&
+                 requires(const KeyEq &eq, const Key &k, const K2 &x) {
+                     {
+                         eq(k, x)
+                     } -> std::convertible_to<bool>;
+                 }
     void shift_n_key(const K2 &key, const int shift) {
         Node *node = find_node(key);
         if (!node) {
@@ -2601,10 +2920,11 @@ public:
              typename AllocIndex,
              typename... Rest,
              IntRange C = Container<Index, AllocIndex, Rest...>>
-    auto find_n_nodes_sg(const C &in,
-                         const bool pre_sorted     = false,
-                         const bool verbose        = false,
-                         const bool profiling_info = false) {
+    [[deprecated]]
+    auto find_n_nodes_sg_old(const C &in,
+                             const bool pre_sorted     = false,
+                             const bool verbose        = false,
+                             const bool profiling_info = false) {
         using S            = std::make_signed_t<Index>;
         using AllocNodePtr = typename std::allocator_traits<AllocIndex>::template rebind_alloc<Node *>;
         using OutContainer = Container<Node *, AllocNodePtr, Rest...>;
@@ -2615,7 +2935,7 @@ public:
 
         // Early exit for empty map
         if (UNLIKELY(N == 0)) {
-            return OutContainer {};
+            return OutContainer{};
         }
 
         // 2a. Normalize & collect indices modulo N
@@ -2645,7 +2965,7 @@ public:
 
         const std::size_t M = mod_idx.size();
         if (M == 0) {
-            return OutContainer {}; // no requests remain
+            return OutContainer{}; // no requests remain
         }
 
         // 2c. Greedy zig-zag walk
@@ -2685,6 +3005,136 @@ public:
                 --right;
             }
             out[pick_left ? left - 1 : right + 1] = cur;
+        }
+
+        if (profiling_info) {
+            std::cout << "find_n_nodes: profiling info: \n";
+            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = " << (static_cast<double>(M) / (M + 1)) * (N - 1)
+                      << "\n";
+            std::cout << "Actual walk bound = " << total_walk << "\n";
+        }
+
+        // 3. Convert to requested container type
+        if constexpr (std::is_same_v<OutContainer, Vec>) {
+            return out;
+        } else {
+            return OutContainer(out.begin(), out.end());
+        }
+    }
+
+    /**
+     * @brief Find multiple nodes by insertion-order indices using a greedy zig-zag walk.
+     *
+     * This template function:
+     *  1. Normalizes all raw indices modulo `size_`, handling negatives.
+     *  2. Sorts (if `!pre_sorted`) and optionally deduplicates (`!allow_dupes`).
+     *  3. Performs a greedy zig-zag traversal from both ends of the list, at each
+     *     step choosing the closer next request to minimize total node hops.
+     *  4. Populates an output container of `Node*`, preserving input order or including
+     *     duplicates as requested.
+     *  5. Runs traversing at max (M/(M+1))(N-1) nodes, where M is the number of
+     *     unique requests and N is the total number of nodes. This function is most beneficial
+     *     when M << N, as it avoids traversing the entire list for each request.
+     *
+     * @tparam Index      Integer type of input indices (signed OK).
+     * @tparam Container  Container template (e.g. std::vector) for output.
+     * @tparam AllocIndex Allocator type for input container C.
+     * @tparam Rest       Additional template parameters of Container.
+     * @tparam C          Type of input container (must satisfy IntRange).
+     * @param in          Input container of raw indices.
+     * @param pre_sorted  If true, skip sorting step.
+     * @param verbose     If true, emit step-by-step debug prints.
+     * @param profiling_info If true, emit profiling info.
+     * @return Container of Node* corresponding to each requested index.
+     */
+    template<typename Index,
+             template<typename, typename...> class Container,
+             typename AllocIndex,
+             typename... Rest,
+             IntRange C = Container<Index, AllocIndex, Rest...>>
+    auto find_n_nodes_sg(const C &in,
+                         const bool pre_sorted     = false,
+                         const bool verbose        = false,
+                         const bool profiling_info = false) {
+        using S            = std::make_signed_t<Index>;
+        using AllocNodePtr = typename std::allocator_traits<AllocIndex>::template rebind_alloc<Node *>;
+        using OutContainer = Container<Node *, AllocNodePtr, Rest...>;
+        using Vec          = std::vector<Node *, AllocNodePtr>;
+
+        const std::size_t N = size_;                 // total nodes in list
+        const S tail_i      = static_cast<S>(N) - 1; // last index
+
+        // Early exit for empty map
+        if (UNLIKELY(N == 0)) {
+            return OutContainer{};
+        }
+
+        // 2a. Normalize & collect indices modulo N
+        std::vector<S> mod_idx;
+        mod_idx.reserve(in.size());
+        for (auto raw : in) {
+            S m = static_cast<S>(raw) % static_cast<S>(N);
+            if (m < 0)
+                m += static_cast<S>(N);
+            mod_idx.push_back(m);
+        }
+        if (verbose) {
+            std::cout << "find_n_nodes: normalized = { ";
+            for (auto m : mod_idx)
+                std::cout << m << ' ';
+            std::cout << "}\n";
+        }
+
+        // 2b. Sort & dedupe
+        if (!pre_sorted) {
+            std::ranges::sort(mod_idx);
+        }
+#ifndef NDEBUG
+        if (!std::is_sorted(mod_idx.begin(), mod_idx.end()))
+            throw std::logic_error("find_n_nodes: indices not sorted!");
+#endif
+
+        const std::size_t M = mod_idx.size();
+        if (M == 0) {
+            return OutContainer{}; // no requests remain
+        }
+
+        // 2c. Greedy zig-zag walk
+        Vec out(M);
+        S bnd_low         = 0;
+        S bnd_high        = tail_i;
+        std::ptrdiff_t lo = 0, hi = M - 1;
+        Node *left_ref = head_, *right_ref = tail_;
+
+        size_t total_walk = 0;
+        while (lo <= hi) {
+            // 2d. Compute next left/right pick offsets
+            const S l_mod_idx = mod_idx[static_cast<size_t>(lo)];
+            const S r_mod_idx = mod_idx[static_cast<size_t>(hi)];
+
+            // 2e. Distances from current bounds
+            const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
+            const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
+            bool pick_left    = (l_dist <= r_dist);
+
+            // 2f. Walk to the chosen node
+            Node *cur = pick_left ? walk(left_ref, static_cast<size_t>(l_dist), true)
+                                  : walk(right_ref, static_cast<size_t>(r_dist), false);
+
+            // 2g. Update bounds & refs
+            if (pick_left) {
+                out[static_cast<size_t>(lo)] = cur;
+                bnd_low                      = l_mod_idx;
+                left_ref                     = cur;
+                ++lo;
+                total_walk += l_dist;
+            } else {
+                out[static_cast<size_t>(hi)] = cur;
+                bnd_high                     = r_mod_idx;
+                right_ref                    = cur;
+                --hi;
+                total_walk += r_dist;
+            }
         }
 
         if (profiling_info) {
@@ -2755,7 +3205,7 @@ public:
         using Index      = std::ranges::range_value_t<C>;
         using AllocIndex = typename C::allocator_type;
 
-        return find_n_nodes<Index, get_template<std::remove_cvref_t<C>>::template apply, AllocIndex>(in,
+        return find_n_nodes_sg<Index, get_template<std::remove_cvref_t<C>>::template apply, AllocIndex>(in,
                                                                                                      pre_sorted,
                                                                                                      verbose,
                                                                                                      profiling_info);
@@ -2773,10 +3223,11 @@ public:
      * @param profiling_info If true, emit profiling info.
      * @return Vector of Node* corresponding to the requested indices.
      */
-    std::vector<Node *> find_n_nodes_impl(std::vector<int> &in,
-                                          const bool pre_sorted     = false,
-                                          const bool verbose        = false,
-                                          const bool profiling_info = false) {
+    [[deprecated]]
+    std::vector<Node *> find_n_nodes_impl_old(std::vector<int> &in,
+                                              const bool pre_sorted     = false,
+                                              const bool verbose        = false,
+                                              const bool profiling_info = false) {
         using Vec = std::vector<Node *>;
 
         const std::size_t N = size_;                   // total nodes in list
@@ -2784,7 +3235,7 @@ public:
 
         // Early exit for empty map
         if (UNLIKELY(N == 0)) {
-            return Vec {};
+            return Vec{};
         }
 
         // 2a. Normalize & collect indices modulo N
@@ -2812,7 +3263,7 @@ public:
 
         const std::size_t M = in.size();
         if (M == 0) {
-            return Vec {}; // no requests remain
+            return Vec{}; // no requests remain
         }
 
         // 2c. Greedy zig-zag walk
@@ -2863,6 +3314,124 @@ public:
         return out;
     }
 
+    /**
+     * @brief Implementation of find_n_nodes that operates on a vector of indices.
+     *
+     * This function is specialized for std::vector<Node *> output, allowing
+     * for efficient bulk retrieval of nodes by insertion-order indices.
+     *
+     * @param in          Input vector of indices to find.
+     * @param pre_sorted  If true, skip sorting step.
+     * @param verbose     If true, emit debug prints.
+     * @param profiling_info If true, emit profiling info.
+     * @return Vector of Node* corresponding to the requested indices.
+     */
+    std::vector<Node *> find_n_nodes_impl(std::vector<int> &in,
+                                          const bool pre_sorted     = false,
+                                          const bool verbose        = false,
+                                          const bool profiling_info = false) {
+        using Vec = std::vector<Node *>;
+
+        const std::size_t N = size_;                   // total nodes in list
+        const int tail_i    = static_cast<int>(N) - 1; // last index
+
+        // Early exit for empty map
+        if (UNLIKELY(N == 0)) {
+            return Vec{};
+        }
+
+        // 2a. Normalize & collect indices modulo N
+        for (int &i : in) {
+            int m = i % static_cast<int>(N);
+            if (m < 0)
+                m += static_cast<int>(N);
+            i = m;
+        }
+        if (verbose) {
+            std::cout << "find_n_nodes: normalized = { ";
+            for (const auto m : in)
+                std::cout << m << ' ';
+            std::cout << "}\n";
+        }
+
+        // 2b. Sort & dedupe
+        if (!pre_sorted) {
+            std::ranges::sort(in);
+        }
+#ifndef NDEBUG
+        if (!std::ranges::is_sorted(in))
+            throw std::logic_error("find_n_nodes: indices not sorted!");
+#endif
+
+        const std::size_t M = in.size();
+        if (M == 0) {
+            return Vec{}; // no requests remain
+        }
+
+        // 2c. Greedy zig-zag walk
+        Vec out(M);
+        int bnd_low = 0, bnd_high = tail_i;
+        std::ptrdiff_t lo = 0, hi = M - 1;
+        Node *left_ref = head_, *right_ref = tail_;
+
+        size_t total_walk = 0;
+
+        while (lo <= hi) {
+            // 2d. Compute next left/right pick offsets
+            const int l_mod_idx = in[static_cast<size_t>(lo)];
+            const int r_mod_idx = in[static_cast<size_t>(hi)];
+
+            // 2e. Distances from current bounds
+            const long l_dist = static_cast<long>(l_mod_idx) - bnd_low;
+            const long r_dist = bnd_high - static_cast<long>(r_mod_idx);
+            bool pick_left    = (l_dist <= r_dist);
+
+            // 2f. Walk to the chosen node
+            Node *cur = pick_left ? walk(left_ref, static_cast<size_t>(l_dist), true)
+                                  : walk(right_ref, static_cast<size_t>(r_dist), false);
+
+            // 2g. Update bounds & refs
+            if (pick_left) {
+                out[static_cast<size_t>(lo)] = cur;
+                bnd_low                      = l_mod_idx;
+                left_ref                     = cur;
+                ++lo;
+                total_walk += l_dist;
+            } else {
+                out[static_cast<size_t>(hi)] = cur;
+                bnd_high                     = r_mod_idx;
+                right_ref                    = cur;
+                --hi;
+                total_walk += r_dist;
+            }
+        }
+
+        if (profiling_info) {
+            std::cout << "find_n_nodes: profiling info: \n";
+            std::cout << "Expected walk bound ((M/(M+1))(N-1)) = "
+                      << (static_cast<double>(M) / (static_cast<double>(M) + 1)) * (N - 1) << "\n";
+            std::cout << "Actual walk bound = " << total_walk << "\n";
+        }
+        return out;
+    }
+
+    // 2. Non-const overload: just forward to impl
+    std::vector<Node *> find_n_nodes(std::vector<int> &in,
+                                     const bool pre_sorted     = false,
+                                     const bool verbose        = false,
+                                     const bool profiling_info = false) {
+        return find_n_nodes_impl(in, pre_sorted, verbose, profiling_info);
+    }
+
+    // 3. Const overload: copy once, then forward
+    std::vector<Node *> find_n_nodes(const std::vector<int> &in,
+                                     const bool pre_sorted     = false,
+                                     const bool verbose        = false,
+                                     const bool profiling_info = false) {
+        std::vector<int> copy = in; // ← single allocation + O(n) copy
+        return find_n_nodes_impl(copy, pre_sorted, verbose, profiling_info);
+    }
+
 
     // ---------- 5. Rotating and Reversal ---------- //
 
@@ -2904,24 +3473,6 @@ public:
         } while (cur != head_);
     }
 
-    // 2. Non-const overload: just forward to impl
-    std::vector<Node *> find_n_nodes(std::vector<int> &in,
-                                     const bool pre_sorted     = false,
-                                     const bool verbose        = false,
-                                     const bool profiling_info = false) {
-        return find_n_nodes_impl(in, pre_sorted, verbose, profiling_info);
-    }
-
-    // 3. Const overload: copy once, then forward
-    std::vector<Node *> find_n_nodes(const std::vector<int> &in,
-                                     const bool pre_sorted     = false,
-                                     const bool verbose        = false,
-                                     const bool profiling_info = false) {
-        std::vector<int> copy = in; // ← single allocation + O(n) copy
-        return find_n_nodes_impl(copy, pre_sorted, verbose, profiling_info);
-    }
-
-
     // ───────────────────────────────────────────────────────────────────────────//
     //  ----- Splicing and Splitting -----
 
@@ -2945,9 +3496,9 @@ public:
         }
 
         // Identify start and end of subchain to move
-        Node *f     = first.cur; // first node in range
-        Node *l     = last.cur;  // node after last to move
-        Node *lPrev = l->prev_;  // last node in range
+        Node *f     = first.cur;                         // first node in range
+        Node *l     = last.cur ? last.cur : other.head_; // node after last to move
+        Node *lPrev = l->prev_;                          // last node in range
 
         // Count nodes to move
         size_t count = 0;
@@ -3293,17 +3844,16 @@ public:
      *
      * @param other  Map to swap with.
      */
-    void swap(DoublyLinkedCircularHashMap &other) noexcept(
-        std::is_nothrow_swappable_v<Hash> &&
-        std::is_nothrow_swappable_v<KeyEq> &&
-        (std::allocator_traits<Alloc>::propagate_on_container_swap::value ||
-            std::allocator_traits<Alloc>::is_always_equal::value)) {
+    void swap(DoublyLinkedCircularHashMap &other)
+            noexcept(std::is_nothrow_swappable_v<Hash> && std::is_nothrow_swappable_v<KeyEq> &&
+                     (std::allocator_traits<Alloc>::propagate_on_container_swap::value ||
+                      std::allocator_traits<Alloc>::is_always_equal::value)) {
 
         // For simplicity
         using std::swap;
 
         // Allocator handling
-        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap:: value) {
+        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap::value) {
             swap(alloc_, other.alloc_);
             swap(nodeAlloc_, other.nodeAlloc_);
             swap(nodePtrAlloc_, other.nodePtrAlloc_);
@@ -3312,8 +3862,7 @@ public:
 #ifndef NDEBUG
             // If allocators are not always equal, we must ensure they are the same
             if constexpr (!std::allocator_traits<Alloc>::is_always_equal::value) {
-                assert(alloc_ == other.alloc_ &&
-                       "swap() with unequal non-propagating allocators");
+                assert(alloc_ == other.alloc_ && "swap() with unequal non-propagating allocators");
             }
 #endif
         }
@@ -3330,7 +3879,6 @@ public:
         swap(rehashCount_, other.rehashCount_);
         swap(maxBucketSize_, other.maxBucketSize_);
         swap(largestBucketIdx_, other.largestBucketIdx_);
-
     }
 
     /**
@@ -3339,8 +3887,7 @@ public:
      * @param a  First map.
      * @param b  Second map.
      */
-    friend void swap(DoublyLinkedCircularHashMap &a, DoublyLinkedCircularHashMap &b)
-    noexcept(noexcept(a.swap(b))) {
+    friend void swap(DoublyLinkedCircularHashMap &a, DoublyLinkedCircularHashMap &b) noexcept(noexcept(a.swap(b))) {
         a.swap(b);
     }
 

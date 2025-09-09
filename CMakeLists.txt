@@ -58,6 +58,12 @@ add_executable(attendanceServer
 # tiny demo target
 add_executable(testUniqueErase testUniqueErase.cpp)
 
+# zigzag demo target
+add_executable(testZigZag testZigZag.cpp)
+
+# zigzag speed test target
+add_executable(testZigZagSpeed testZigZagSpeed.cpp)
+
 # server demo target
 add_executable(server server.cpp)
 
@@ -67,6 +73,14 @@ add_executable(polyTest crypto/polyTest.cpp)
 set_target_properties(testUniqueErase PROPERTIES EXCLUDE_FROM_ALL YES)
 
 target_link_libraries(testUniqueErase PRIVATE)
+
+set_target_properties(testZigZag PROPERTIES EXCLUDE_FROM_ALL YES)
+
+target_link_libraries(testZigZag PRIVATE)
+
+set_target_properties(testZigZagSpeed PROPERTIES EXCLUDE_FROM_ALL YES)
+
+target_link_libraries(testZigZagSpeed PRIVATE)
 
 set_target_properties(server PROPERTIES EXCLUDE_FROM_ALL YES)
 # link server to Boost
@@ -81,6 +95,18 @@ target_compile_options(
         PRIVATE
         -O3 -mavx2 -mfma
         #-O3 -msse4.2 -mno-avx -mno-avx
+)
+
+target_compile_options(
+        testZigZag
+        PRIVATE
+        -O3 -mavx2 -mfma
+)
+
+target_compile_options(
+        testZigZagSpeed
+        PRIVATE
+        -O3 -mavx2 -mfma
 )
 
 target_link_libraries(attendanceServer

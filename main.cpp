@@ -22,20 +22,39 @@ int doublyLinkedCHMTest() {
                 << ", Value: " << map[i] << "\n";
     }
 
-    // 3) First orderedGet (stepping by 7, from head)
+    // 3a) First orderedGet (stepping by 7, from head)
     std::cout << "\n=== orderedGet stepping by 7 ===\n";
-    for (size_t i = 0; i < map.size(); i++) {
+    for (int i = 0; i < map.size(); i++) {
         auto p = map.orderedGet(7 * i, nullptr, true);
         std::cout << "Index " << i
                 << " -> Value: " << *p << "\n";
     }
 
-    // 4) Second orderedGet (stepping by 7, starting from a custom node)
+    //3b) First orderedGet (stepping by -7, from head)
+    std::cout << "\n=== orderedGet stepping by -7 ===\n";
+    for (int i = 0; i < map.size(); i++) {
+        auto p = map.orderedGet(-7 * i, nullptr, true);
+        std::cout << "Index " << i
+                << " -> Value: " << *p << "\n";
+    }
+
+
+    // 4a) Second orderedGet (stepping by 7, starting from a custom node)
     std::cout << "\n=== orderedGet stepping by 7, from node at 2*i ===\n";
-    for (size_t i = 0; i < map.size(); i++) {
+    for (int i = 0; i < map.size(); i++) {
         // pick a “from” position at index 2*i
         auto from = map.orderedGetNode(2 * i, nullptr, false);
         auto p = map.orderedGet(7 * i, from, true);
+        std::cout << "Index " << i
+                << " -> Value: " << *p << "\n";
+    }
+
+    // 4b) Second orderedGet (stepping by -7, starting from a custom node)
+    std::cout << "\n=== orderedGet stepping by -7, from node at 2*i ===\n";
+    for (int i = 0; i < map.size(); i++) {
+        // pick a “from” position at index 2*i
+        auto from = map.orderedGetNode(2 * i, nullptr, false);
+        auto p = map.orderedGet(-7 * i, from, true);
         std::cout << "Index " << i
                 << " -> Value: " << *p << "\n";
     }
@@ -200,20 +219,38 @@ int doublyLinkedCHMTest() {
     }
 
     // === Testing setHashFunction with bucket‐introspection ===
+    struct IntSwitchHash {
+        enum class Mode { Good, AllZero };
+        Mode mode = Mode::Good;
+
+        // (optional) mark transparent; harmless for ints and keeps your pattern consistent
+        using is_transparent = void;
+
+        IntSwitchHash() = default;
+        explicit IntSwitchHash(Mode m) : mode(m) {}
+
+        std::size_t operator()(int x) const noexcept {
+            if (mode == Mode::AllZero) return 0u;          // pathological hash
+            return std::hash<int>{}(x);                    // normal hash
+        }
+    };
+
+    // === Testing setHashFunction with bucket‐introspection ===
     std::cout << "\n=== Testing setHashFunction ===\n";
 
-    // build a small map so collisions are easy
-    DoublyLinkedCircularHashMap<int, int> hmap(8, /*maxLoadFactor=*/1.0);
+    // Use the switchable hasher as the map's Hash type
+    using HMap = DoublyLinkedCircularHashMap<int, int, IntSwitchHash>;
+    HMap hmap(8, /*maxLoadFactor=*/1.0);          // IntSwitchHash defaults to Good
+
     for (int i = 0; i < 16; ++i) {
         hmap.insert(i, i * 10);
     }
     assert(hmap.size() == 16);
 
     // snapshot insertion order
-    std::vector<std::pair<int, int> > before;
+    std::vector<std::pair<int, int>> before;
     before.reserve(16);
-    for (auto const &kv: hmap)
-        before.emplace_back(kv);
+    for (auto const& kv : hmap) before.emplace_back(kv);
 
     // show bucket sizes before
     std::cout << "-- before rehash --\n";
@@ -225,10 +262,8 @@ int doublyLinkedCHMTest() {
     hmap.debugKey(7);
     hmap.debugKey(15);
 
-    // install a “bad” hash: everything → bucket 0
-    hmap.setHashFunction([](const int &key) {
-        return 0u;
-    });
+    // install the “bad” mode (same type, different state) → everything goes to bucket 0
+    hmap.setHashFunction(IntSwitchHash{IntSwitchHash::Mode::AllZero});
 
     // verify size unchanged
     assert(hmap.size() == 16);
@@ -243,13 +278,14 @@ int doublyLinkedCHMTest() {
     hmap.debugKey(7);
     hmap.debugKey(15);
 
-    // verify lookups & insertion order
+    // verify lookups & insertion order still good
     for (int i = 0; i < 16; ++i) {
         auto p = hmap.find_ptr(i);
-        assert(p && *p == i*10);
-    } {
+        assert(p && *p == i * 10);
+    }
+    {
         size_t idx = 0;
-        for (const auto &[fst, snd]: hmap) {
+        for (const auto& [fst, snd] : hmap) {
             assert(fst == before[idx].first);
             assert(snd == before[idx].second);
             ++idx;
@@ -258,6 +294,7 @@ int doublyLinkedCHMTest() {
     }
 
     std::cout << "[OK] setHashFunction + distribution test passed\n";
+
 
 
     return 0;
@@ -492,6 +529,52 @@ void testDoublyLinkedCircularHashMap() {
         } else {
             std::cout << "[FAIL] erase_if test failed\n";
         }
+    }
+
+    // === Quick test of walk() and multi_walk() ===
+    {
+        using Mapa = DoublyLinkedCircularHashMap<int, std::string>;
+        Mapa mah;
+        // populate 0..9
+        for (int i = 0; i < 10; ++i) {
+            mah.insert(i, std::to_string(i));
+        }
+
+        std::cout << "\n=== Testing walk() ===\n";
+        // walk has us start on one node and  step left or right n nodes
+        for (std::vector steps = {3, -2, 4, -5, 15, -12}; const int &s : steps) {
+            std::cout << "Steps: " << s << "\n";
+            if (auto *result = Mapa::walk(mah.orderedGetNode(0), s, true)) {
+                std::cout << "Starting at index 0, walking " << (s >= 0 ? "+" : "") << s
+                        << " steps lands on Node: \nKey: \n" << result->key_ << "\n";
+                std::cout << "Value: \n" << result->value_ << "\n";
+            } else {
+                std::cout << "walk() returned null\n";
+            }
+        }
+        std::cout << "\n=== Testing multi_walk() ===\n";
+        // multi_walk has us start on a list of nodes and step left or right n nodes each
+        std::vector starts = {mah.orderedGetNode(0), mah.orderedGetNode(5), mah.orderedGetNode(9)};
+        for (std::vector steps = {3, -2, 4, -5, 15, -12}; const int &s : steps) {
+            std::cout << "Steps: " << s << "\n";
+
+            auto results = Mapa::multi_walk(starts, s, true);
+            for (size_t i = 0; i < results.size(); ++i) {
+                if (results[i]) {
+                    std::cout << "Start key: " << starts[i]->key_ << ", steps: " << s
+                            << " -> landed on key: " << results[i]->key_ << ", value: " << results[i]->value_ << "\n";
+                } else {
+                    std::cout << "multi_walk() returned null for start key: " << starts[i]->key_ << "\n";
+                }
+            }
+        }
+
+        // simple check
+        std::cout << "[OK] walk and multi_walk test completed\n";
+
+
+
+
     }
 
 
@@ -762,7 +845,7 @@ void testAllocatorSupport()
     NodeAlloc::deallocCount_T = 0;
 
     MapT m{/*initBuckets=*/8, /*maxLoadFactor=*/1.0,
-           std::hash<int>{}, std::equal_to<int>{}, PairAlloc{}};
+           std::hash<int>{}, std::equal_to<>{}, PairAlloc{}};
 
     // 1) insert N elements → N new nodes
     for (int i = 0; i < N; ++i)
@@ -865,7 +948,7 @@ int main() {
     testDoublyLinkedCircularHashMap();
     // have user enter a key to exit
     std::cout << "Press Enter to exit...\n";
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    // std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cout << "Exiting...\n";
     return 0;
 }
