@@ -26,91 +26,6 @@
 namespace simd {
 using u64 = std::uint64_t;
 
-namespace debug {
-    static void print_u64x4(const char *lbl, const __m256i v) {
-        alignas(32) uint64_t t[4];
-        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
-        std::printf("%s u64x4 : [%016llx | %016llx | %016llx | %016llx]\n",
-                    lbl,
-                    static_cast<unsigned long long>(t[0]),
-                    static_cast<unsigned long long>(t[1]),
-                    static_cast<unsigned long long>(t[2]),
-                    static_cast<unsigned long long>(t[3]));
-    }
-
-    static void print_s64x4(const char *lbl, const __m256i v) {
-        alignas(32) int64_t t[4];
-        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
-        std::printf("%s s64x4 : [%lld | %lld | %lld | %lld]\n",
-                    lbl,
-                    static_cast<long long>(t[0]),
-                    static_cast<long long>(t[1]),
-                    static_cast<long long>(t[2]),
-                    static_cast<long long>(t[3]));
-    }
-
-    static void print_u32x8_256(const char *lbl, const __m256i v) {
-        alignas(32) uint32_t t[8];
-        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
-        std::printf("%s u32x8 : [%08x %08x %08x %08x | %08x %08x %08x %08x]\n",
-                    lbl,
-                    t[0],
-                    t[1],
-                    t[2],
-                    t[3],
-                    t[4],
-                    t[5],
-                    t[6],
-                    t[7]);
-    }
-
-    static void print_u32x4_128(const char *lbl, const __m128i v) {
-        alignas(16) uint32_t t[4];
-        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
-        std::printf("%s u32x4 : [%08x %08x %08x %08x]\n", lbl, t[0], t[1], t[2], t[3]);
-    }
-
-    static void print_u16x16(const char *lbl, const __m256i v) {
-        alignas(32) uint16_t t[16];
-        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
-        std::printf("%s u16x16: [%04x %04x %04x %04x %04x %04x %04x %04x | "
-                    "%04x %04x %04x %04x %04x %04x %04x %04x]\n",
-                    lbl,
-                    t[0],
-                    t[1],
-                    t[2],
-                    t[3],
-                    t[4],
-                    t[5],
-                    t[6],
-                    t[7],
-                    t[8],
-                    t[9],
-                    t[10],
-                    t[11],
-                    t[12],
-                    t[13],
-                    t[14],
-                    t[15]);
-    }
-
-    // ReSharper disable once CppDFAConstantParameter
-    static void print_u16x8_128(const char *lbl, const __m128i v) {
-        alignas(16) uint16_t t[8];
-        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
-        std::printf("%s u16x8 : [%04x %04x %04x %04x | %04x %04x %04x %04x]\n",
-                    lbl,
-                    t[0],
-                    t[1],
-                    t[2],
-                    t[3],
-                    t[4],
-                    t[5],
-                    t[6],
-                    t[7]);
-    }
-} // namespace debug
-
 static constexpr unsigned char operator""_uc(const unsigned long long arg) noexcept {
     return static_cast<unsigned char>(arg);
 }
@@ -159,6 +74,132 @@ struct alignas(32) PolyBase {
 
     value_type operator[](std::size_t i) const noexcept { return v[i]; }
 };
+
+namespace debug {
+#if defined(__AVX2__)
+    static void print_u64x4(const char *lbl, const __m256i v, const bool hex = false) {
+        alignas(32) uint64_t t[4];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        const char *frmt_string = hex ? "%s u64x4 : [%016llx | %016llx | %016llx | %016llx]\n"
+                                      : "%s u64x4 : [%llu | %llu | %llu | %llu]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    static_cast<unsigned long long>(t[0]),
+                    static_cast<unsigned long long>(t[1]),
+                    static_cast<unsigned long long>(t[2]),
+                    static_cast<unsigned long long>(t[3]));
+    }
+
+    static void print_s64x4(const char *lbl, const __m256i v) {
+        alignas(32) int64_t t[4];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        const char *frmt_string = "%s s64x4 : [%lld | %lld | %lld | %lld]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    static_cast<long long>(t[0]),
+                    static_cast<long long>(t[1]),
+                    static_cast<long long>(t[2]),
+                    static_cast<long long>(t[3]));
+    }
+
+    static void print_u32x8_256(const char *lbl, const __m256i v, const bool hex = false) {
+        alignas(32) uint32_t t[8];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        const char *frmt_string = hex ? "%s u32x8 : [%08x %08x %08x %08x | %08x %08x %08x %08x]\n"
+                                        : "%s u32x8 : [%u %u %u %u | %u %u %u %u]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7]);
+    }
+#endif
+
+#if defined(__SSE4_2__) || defined(__AVX2__)
+    static void print_u32x4_128(const char *lbl, const __m128i v, const bool hex = false) {
+        alignas(16) uint32_t t[4];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        const char *frmt_string = hex ? "%s u32x4 : [%08x %08x %08x %08x]\n" : "%s u32x4 : [%u %u %u %u]\n";
+        std::printf(frmt_string, lbl, t[0], t[1], t[2], t[3]);
+    }
+#endif
+
+#if defined(__AVX2__)
+    static void print_u16x16(const char *lbl, const __m256i v, const bool hex = false) {
+        alignas(32) uint16_t t[16];
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(t), v);
+        const char *frmt_string = hex ? "%s u16x16 : [%04x %04x %04x %04x | %04x %04x %04x %04x | "
+                                        "%04x %04x %04x %04x | %04x %04x %04x %04x]\n"
+                                      : "%s u16x16 : [%u %u %u %u | %u %u %u %u | "
+                                        "%u %u %u %u | %u %u %u %u]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7],
+                    t[8],
+                    t[9],
+                    t[10],
+                    t[11],
+                    t[12],
+                    t[13],
+                    t[14],
+                    t[15]);
+    }
+#endif
+
+#if defined(__AVX2__) || defined(__SSE4_2__)
+    // ReSharper disable once CppDFAConstantParameter
+    static void print_u16x8_128(const char *lbl, const __m128i v, const bool hex = false) {
+        alignas(16) uint16_t t[8];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        const char *frmt_string = hex ? "%s u16x8 : [%04x %04x %04x %04x | %04x %04x %04x %04x]\n"
+                                      : "%s u16x8 : [%u %u %u %u | %u %u %u %u]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    t[0],
+                    t[1],
+                    t[2],
+                    t[3],
+                    t[4],
+                    t[5],
+                    t[6],
+                    t[7]);
+    }
+
+    static void print_s64x2(const char *lbl, const __m128i v, const bool hex = false) {
+        alignas(16) int64_t t[2];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        std::printf("%s s64x2 : [%lld | %lld]\n",
+                    lbl,
+                    static_cast<long long>(t[0]),
+                    static_cast<long long>(t[1]));
+    }
+
+    static void print_u64x2(const char *lbl, const __m128i v, const bool hex = false) {
+        alignas(16) uint64_t t[2];
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(t), v);
+        const char *frmt_string = hex ? "%s u64x2 : [%016llx | %016llx]\n" : "%s u64x2 : [%llu | %llu]\n";
+        std::printf(frmt_string,
+                    lbl,
+                    static_cast<unsigned long long>(t[0]),
+                    static_cast<unsigned long long>(t[1]));
+    }
+
+
+#endif
+
+} // namespace debug
 
 namespace detail {
 
@@ -224,13 +265,16 @@ namespace detail {
         static constexpr u64 MU64       = detail::BARRETT_MU64<Q>;
         static constexpr u64 NEG_ADJ_64 = detail::NEG_ADJ_64<Q>;
 
+#if defined(__AVX2__)
         // __m256i constants for AVX2 Signed 64 bit Barrett reduction
         alignas(32) static inline const __m256i zero_256    = _mm256_setzero_si256();
         alignas(32) static inline const __m256i neg_one_256 = _mm256_set1_epi64x(-1); // 64-bit lanes for one
         alignas(32) static inline const __m256i negAdj_256  = _mm256_set1_epi64x(NEG_ADJ_64);
         alignas(32) static inline const __m256i Q256_64     = _mm256_set1_epi64x(Q); // 64-bit lanes for Q
         alignas(32) static inline const __m256i MU256_64 = _mm256_set1_epi64x(MU64); // 64-bit lanes for multiplication
+#endif
 
+#if defined(__SSE4_2__)
         // __m128i constants for SSE4.2 Signed 64 bit Barrett reduction
         alignas(16) static inline const __m128i zero_128    = _mm_setzero_si128();
         alignas(16) static inline const __m128i neg_one_128 = _mm_set1_epi64x(-1); // 64-bit lanes for one
@@ -241,6 +285,7 @@ namespace detail {
                 _mm_setr_epi8(0, 1, 2, 3, 8, 9, 10, 11, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c);
         alignas(16) static inline const __m128i bit_shuffle_mask_2_128 =
                 _mm_setr_epi8(0, 1, 8, 9, 4, 5, 12, 13, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c, 0x80_c);
+#endif
     };
 
 
@@ -400,6 +445,7 @@ namespace kernels {
     static __m128i mm_mulhi_epu64(const __m128i A, const __m128i B) noexcept {
         // mask for low 32 bits
         const __m128i mask32 = _mm_set1_epi64x(0xFFFF'ffffULL);
+        const __m128i signbit = _mm_set1_epi64x(0x8000000000000000_ll);
         const __m128i one64  = _mm_set1_epi64x(1);
 
         // split each 64-bit lane into two 32-bit halves
@@ -423,7 +469,9 @@ namespace kernels {
         // now compute low-half sum to detect carry
         const __m128i sum_lo = _mm_add_epi64(lo_lo, cross_lo_shl);
         // carry if lo_lo + … overflowed: sum_lo < lo_lo
-        const __m128i carry_mask = _mm_cmpgt_epi64(lo_lo, sum_lo);
+        const __m128i lo_lo_xor  = _mm_xor_si128(lo_lo, signbit);
+        const __m128i sum_lo_xor = _mm_xor_si128(sum_lo, signbit);
+        const __m128i carry_mask = _mm_cmpgt_epi64(lo_lo_xor, sum_lo_xor);
         const __m128i carry      = _mm_and_si128(carry_mask, one64);
 
         // final high 64 bits = hi_hi + cross_hi + carry
@@ -459,7 +507,7 @@ namespace kernels {
     /* ---------------------------------------------------------------- */
 #if defined(__AVX2__)
     template<std::uint32_t Q>
-    __m256i reduce16_avx2(const __m256i x32) noexcept {
+    __m256i reduce8_avx2(const __m256i x32) noexcept {
         using C = vec_consts32<Q>; // Q256  and MU256
 
         /* -------- multiply: even + odd lanes separately ---------------- */
@@ -491,7 +539,7 @@ namespace kernels {
 
 
     template<std::uint32_t Q>
-    __m128i reduce8_sse2(const __m128i x32) noexcept {
+    __m128i reduce4_sse2(const __m128i x32) noexcept {
         using C      = vec_consts32<Q>;
         __m128i even = _mm_mul_epu32(x32, C::MU128); // lanes 0,2 → 64-bit
         __m128i odd  = _mm_mul_epu32(_mm_srli_epi64(x32, 32), C::MU128);
@@ -618,25 +666,37 @@ namespace kernels {
 #endif
 
 #if defined(__SSE4_2__)
-    template<std::uint32_t Q, std::size_t N>
+    template<std::uint32_t Q, std::size_t N, bool DEBUG = false>
     void reduce_s64_sse(const std::int64_t *in, std::uint16_t *out) noexcept {
         using C = detail::barrett_s64_consts<Q>;
 
-        static_assert(N % 4 == 0, "N must be multiple of 4 for SSE2 reduce_s64");
+        static_assert(N % 4 == 0, "N must be multiple of 4 for SSE4.2 reduce_s64");
 
         for (std::size_t i = 0; i < N; i += 4) {
-            // 1. Load eight int64_t values as two 256-bit registers 4 lanes each
+            // 1. Load four int64_t values as two 128-bit registers 2 lanes each
             const __m128i x_low  = _mm_loadu_si128(reinterpret_cast<const __m128i *>(in + i));
             const __m128i x_high = _mm_loadu_si128(reinterpret_cast<const __m128i *>(in + i + 2));
+            if constexpr (DEBUG) {
+                debug::print_s64x2("x_low        ", x_low);
+                debug::print_s64x2("x_high       ", x_high);
+            }
 
             // 2. Compute mask = (x < 0) ? 0xFFFFFFFFFFFFFFFF : 0
             const __m128i m_low  = _mm_cmpgt_epi64(C::zero_128, x_low);  // mask for low lanes
             const __m128i m_high = _mm_cmpgt_epi64(C::zero_128, x_high); // mask for high lanes
+            if constexpr (DEBUG) {
+                debug::print_u64x2("m_low (mask) ", m_low);
+                debug::print_u64x2("m_high(mask) ", m_high);
+            }
 
             // 3. ux = bitcast(x) as unsigned 64-bit integers
             //    pre_mod = ux - (negAdj & mask)
             const __m128i p_low  = _mm_sub_epi64(x_low, _mm_and_si128(C::negAdj_128, m_low));
             const __m128i p_high = _mm_sub_epi64(x_high, _mm_and_si128(C::negAdj_128, m_high));
+            if constexpr (DEBUG) {
+                debug::print_u64x2("p_low        ", p_low);
+                debug::print_u64x2("p_high       ", p_high);
+            }
 
             // 4. Multiply by MU64 -> high 64 bits of 64*64=128 product
 
@@ -646,19 +706,29 @@ namespace kernels {
             // 7. Compute raw remainder r = pre_mod - t * Q
             const __m128i tq_low  = mm_mullo_epu64(t64_low, C::Q128_64);  // t * Q for low lanes
             const __m128i tq_high = mm_mullo_epu64(t64_high, C::Q128_64); // t * Q for high lanes
+            if constexpr (DEBUG) {
+                debug::print_u64x2("t64_low      ", t64_low);
+                debug::print_u64x2("t64_high     ", t64_high);
+                debug::print_u64x2("tq_low       ", tq_low);
+                debug::print_u64x2("tq_high      ", tq_high);
+            }
 
 
             const __m128i r_low  = _mm_sub_epi64(p_low, tq_low);
             const __m128i r_high = _mm_sub_epi64(p_high, tq_high);
+            if constexpr (DEBUG) {
+                debug::print_u64x2("r_low        ", r_low);
+                debug::print_u64x2("r_high       ", r_high);
+            }
 
             // Since there is no greater than or equal to comparison for 64-bit integers in AVX2,
             // we will use a trick:
             // We will switch the order of r and q in _mm256_cmpgt_epi64 and then negate the result.
             const __m128i gt_mask_low   = _mm_cmpgt_epi64(C::Q128_64, r_low);         // r < Q
             const __m128i gt_mask_high  = _mm_cmpgt_epi64(C::Q128_64, r_high);        // r < Q
-            const __m128i f_mask_ge_low = _mm_xor_si128(gt_mask_low, C::neg_one_128); // 0x0000...0001 if r < Q, else 0
+            const __m128i f_mask_ge_low = _mm_xor_si128(gt_mask_low, C::neg_one_128); // 0x0000...0000 if r < Q, else 0x1111...1111
             const __m128i f_mask_ge_high =
-                    _mm_xor_si128(gt_mask_high, C::neg_one_128); // 0x0000...0001 if r < Q, else 0
+                    _mm_xor_si128(gt_mask_high, C::neg_one_128); // 0x0000...0000 if r < Q, else 0x1111...1111
             const __m128i a_mask_low =
                     _mm_and_si128(C::Q128_64, f_mask_ge_low); // if r < Q, then a_mask_low = Q, else 0
             const __m128i a_mask_high =
@@ -666,15 +736,33 @@ namespace kernels {
 
             const __m128i r_final_low  = _mm_sub_epi64(r_low, a_mask_low);
             const __m128i r_final_high = _mm_sub_epi64(r_high, a_mask_high);
+            if constexpr (DEBUG) {
+                debug::print_u64x2("r_final_low  ", r_final_low);
+                debug::print_u64x2("r_final_high ", r_final_high);
+            }
 
             // 9. Pack the results into 16-bit integers
             // 9.a. Convert the 64-bit results to 32-bit integers
-            const __m128i r32_shuffled = _mm_unpackhi_epi32(_mm_shuffle_epi8(r_final_low, C::bit_shuffle_mask_1_128),
+            // THIS MUST BE UNPACKLO TO GET THE RIGHT ORDER OTHERWISE COMPLETELY FALLS APART
+            const __m128i r32_shuffled = _mm_unpacklo_epi32(_mm_shuffle_epi8(r_final_low, C::bit_shuffle_mask_1_128),
                                                             _mm_shuffle_epi8(r_final_high, C::bit_shuffle_mask_1_128));
+            if constexpr (DEBUG) {
+                debug::print_u32x4_128("r32_shuffled ", r32_shuffled);
+            }
             const __m128i r32_trunc    = _mm_shuffle_epi8(r32_shuffled, C::bit_shuffle_mask_2_128);
+            if constexpr (DEBUG) {
+                debug::print_u32x4_128("r32_trunc    ", r32_trunc);
+                debug::print_u16x8_128("r32_trunc as u16", r32_trunc);
+            }
             // 9.d) pack 4×32→8×16 and store
+            // This intrinsic stores only the lower 64 bits (4×16)
             _mm_storel_epi64(reinterpret_cast<__m128i *>(out + i), r32_trunc);
         }
+    }
+
+    template<std::uint32_t Q, std::size_t N>
+    void reduce_s64_sse_dbg(const int64_t *in, uint16_t *out) {
+        reduce_s64_sse<Q, N, true>(in, out);
     }
 #endif
 
@@ -690,7 +778,7 @@ namespace kernels {
                 __m256i v32 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(in + i));
 
                 /* Barrett on 8 lanes ----------------------------------------- */
-                const __m256i q32 = reduce16_avx2<Q>(v32); // 8×u32 remainders
+                const __m256i q32 = reduce8_avx2<Q>(v32); // 8×u32 remainders
 
                 /* split 256→128+128, pack each dword to word ----------------- */
                 const __m128i lo32 = _mm256_castsi256_si128(q32);      // lanes 0‥3
@@ -703,12 +791,12 @@ namespace kernels {
             return;
         }
 #endif
-        /* ---- SSE2 path (8 lanes) ---- */
+        /* ---- SSE4.2 path (8 lanes) ---- */
 #if defined(__SSE4_2__)
-        if ((N % 8) == 0) {
-            for (std::size_t i = 0; i < N; i += 8) {
+        if ((N % 4) == 0) {
+            for (std::size_t i = 0; i < N; i += 4) {
                 __m128i v         = _mm_loadu_si128(reinterpret_cast<const __m128i *>(in + i));
-                const __m128i r32 = reduce8_sse2<Q>(v);
+                const __m128i r32 = reduce4_sse2<Q>(v);
                 const __m128i r16 = _mm_packus_epi32(r32, r32);
                 _mm_storeu_si128(reinterpret_cast<__m128i *>(out + i), r16);
             }
@@ -731,7 +819,7 @@ namespace kernels {
 #endif
 #if defined(__SSE4_2__)
         if ((N % 4) == 0) {
-            kernels::reduce_s64_sse<Q, N>(in, out);
+            kernels::reduce_s64_sse<Q, N, DEBUG>(in, out);
             return;
         }
 #endif
@@ -746,8 +834,8 @@ namespace kernels {
     /* ---------------------------------------------------------------- */
 #if defined(__SSE4_2__)
     template<std::size_t N, std::uint32_t Q>
-    void add_mod_sse2(const std::uint16_t *a, const std::uint16_t *b, std::uint16_t *r) noexcept {
-        static_assert(N % 8 == 0, "N must be multiple of 8 for SSE2 add");
+    void add_mod_sse4_2(const std::uint16_t *a, const std::uint16_t *b, std::uint16_t *r) noexcept {
+        static_assert(N % 8 == 0, "N must be multiple of 8 for SSE4.2 add");
         const __m128i k = vec_consts16<Q>::Q128;
 
         for (std::size_t i = 0; i < N; i += 8) {
@@ -822,14 +910,14 @@ public:
             add_mod_avx2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // AVX2 path
 #else
 #if defined(__SSE4_2__)
-            add_mod_sse2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // fallback for non-AVX2
+            add_mod_sse4_2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // fallback for non-AVX2
 #else
             add_schoolbook(a, b, result); // fallback for non-SSE4.2 or AVX2
 #endif
 #endif
         } else if (active() == Level::SSE42) {
 #if defined(__SSE4_2__)
-            add_mod_sse2<N, Q>(a.v.data(), b.v.data(), result.v.data());
+            add_mod_sse4_2<N, Q>(a.v.data(), b.v.data(), result.v.data());
 #else
             add_schoolbook(a, b, result); // fallback for non-SSE4.2
 #endif
@@ -858,24 +946,24 @@ public:
             for (std::size_t j = 0; j < N; ++j) {
                 std::size_t k = (i + j) & (N - 1); // wrap index
                 // print values of i, j, k
-                // if (debug) std::cout << "\ni: " << i << ", j: " << j << ", k: " << k;
+                if (debug) std::cout << "\ni: " << i << ", j: " << j << ", k: " << k;
                 const std::int32_t s = 1 - static_cast<std::int32_t>((i + j) >> log_n) * 2; // ±1
                 // print value of s
-                // if (debug) std::cout << "\ns: " << s;
+                if (debug) std::cout << "\ns: " << s;
 
                 // print values of a.v[i] and b.v[j]
-                // if (debug) std::cout << "\na.v[" << i << "]: " << a.v[i];
-                // if (debug) std::cout << "\nb.v[" << j << "]: " << b.v[j];
+                if (debug) std::cout << "\na.v[" << i << "]: " << a.v[i];
+                if (debug) std::cout << "\nb.v[" << j << "]: " << b.v[j];
                 const std::int64_t prod = s * static_cast<std::int64_t>(a.v[i]) * static_cast<std::int64_t>(b.v[j]);
 
                 // check value of prod is in range [-Q, Q)
-                // if (debug) std::cout << "\nprod: " << prod;
+                if (debug) std::cout << "\nprod: " << prod;
                 // check value of acc[k] is in range [-Q, Q)
-                // if (debug) std::cout << "\nacc[" << k << "]: " << acc[k];
+                if (debug) std::cout << "\nacc[" << k << "]: " << accumulator[k];
                 accumulator[k] = accumulator[k] + static_cast<std::int64_t>(prod);
                 // accumulator[k] = detail::barrett_s64<Q>(static_cast<int64_t>(accumulator[k]) + prod); // |acc| < Q
                 //  check value of acc[k] is in range [-Q, Q)
-                //  if (debug) std::cout << "\nacc[" << k << "] after reduce: " << acc[k];
+                if (debug) std::cout << "\nacc[" << k << "] after reduce: " << accumulator[k];
             }
         };
 

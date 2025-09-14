@@ -11,7 +11,34 @@ using namespace simd;
 template<std::uint32_t Q_>
 using Poly16 = Poly<16, Q_>;
 
+#ifndef SIMD_BUILD_CHOICE
+#define SIMD_BUILD_CHOICE "unknown"
+#endif
+
+static inline const char* build_simd() {
+#if defined(CPU_AVX2)
+    return "avx2";
+#elif defined(CPU_SSE42)
+    return "sse42";
+#elif defined(CPU_SCALAR)
+    return "scalar";
+#else
+    return SIMD_BUILD_CHOICE; // fallback
+#endif
+}
+
 int main() {
+    // Print out CPU mode
+    const auto cpuLevel = simd::active();
+    if (cpuLevel == simd::Level::AVX2) {
+        std::cout << "Using AVX2 optimized kernels\n";
+    } else if (cpuLevel == simd::Level::SSE42) {
+        std::cout << "Using SSE4.2 optimized kernels\n";
+    } else {
+        std::cout << "Using basic (non-SIMD) kernels\n";
+    }
+    std::cout << "Build SIMD: " << build_simd() << "\n";
+
     std::array<uint32_t, 16> tmp1 =
             {1ul, 2ul, 3ul, 4ul, 5ul, 6ul, 7ul, 8ul, 9ul, 10ul, 11ul, 12ul, 13ul, 14ul, 15ul, 16ul};
     std::array<uint32_t, 16> tmp2 = {1ul,
@@ -71,7 +98,7 @@ int main() {
         std::cout << val << " ";
     }
 
-    Poly16<3329ul>::mult_schoolbook(poly1, poly2, poly4);
+    Poly16<3329ul>::mult_schoolbook(poly1, poly2, poly4, false);
     // Display poly1
     std::cout << "\nPoly1: ";
     for (const auto &val : poly1.v) {
@@ -87,10 +114,10 @@ int main() {
     }
 
     // test reduce_vec on poly3
-    std::array<std::uint32_t, 16> tmp32;
+    std::array<std::uint32_t, 16> tmp32{};
     for (std::size_t i = 0; i < 16; ++i)
         tmp32[i] = static_cast<std::uint32_t>(1) << i; // 1, 2, 4, 8, ..., 32768)
-    std::array<std::uint16_t, 16> reduced;
+    std::array<std::uint16_t, 16> reduced{};
     kernels::reduce_vec<3329ul, 16>(tmp32.data(), reduced.data());
     std::cout << "\ninitial Poly3 coefficients: ";
     for (const auto &val : tmp32) {
@@ -123,7 +150,7 @@ int main() {
     const auto ref = refPoly(poly1.v, poly2.v); // ground-truth
 
     // run your current multiply (already prints accumulator)
-    Poly16<3329>::mult_schoolbook(poly1, poly2, poly4);
+    Poly16<3329>::mult_schoolbook(poly1, poly2, poly4, false);
 
     // now dump ref and diff
     std::cout << "\n\nidx  ref  acc  diff\n";
@@ -145,7 +172,7 @@ int main() {
     for (const auto &val : poly6.v) {
         std::cout << val << " ";
     }
-    simd::Poly<16, 3329ul>::mult_schoolbook(poly5, poly6, poly7, true);
+    simd::Poly<16, 3329ul>::mult_schoolbook(poly5, poly6, poly7, false);
     std::cout << "\nPoly7 (result): ";
     for (const auto &val : poly7.v) {
         std::cout << val << " ";
@@ -174,7 +201,7 @@ int main() {
     for (const auto &val : testVec) {
         std::cout << val << " ";
     }
-    std::array<std::uint16_t, 16> reducedVec;
+    std::array<std::uint16_t, 16> reducedVec{};
     kernels::reduce_vec_s64<3329ul, 16>(testVec.data(), reducedVec.data());
     std::cout << "\nReduced vector from reduce_vec_s64:\n";
     for (const auto &val : reducedVec) {
