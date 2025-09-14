@@ -10,6 +10,39 @@ project(attendanceServer
         LANGUAGES CXX
 )
 
+# platform-specific settings for simd
+set(SIMD "auto" CACHE STRING "SIMD level: auto|scalar|sse42|avx2")
+set_property(CACHE SIMD PROPERTY STRINGS auto scalar sse42 avx2)
+
+function(apply_simd target)
+    if (MSVC)
+        if (SIMD STREQUAL "avx2")
+            target_compile_options(${target} PRIVATE /arch:AVX2)
+            target_compile_definitions(${target} PRIVATE CPU_AVX2=1)
+        elseif (SIMD STREQUAL "sse42")
+            # MSVC doesn't expose /arch:SSE4.2; use SSE2 baseline + your own feature guards
+            target_compile_options(${target} PRIVATE /arch:SSE2)
+            target_compile_definitions(${target} PRIVATE CPU_SSE42=1)
+        elseif (SIMD STREQUAL "scalar")
+            target_compile_definitions(${target} PRIVATE CPU_SCALAR=1)
+        endif()
+    else()
+        if (SIMD STREQUAL "avx2")
+            target_compile_options(${target} PRIVATE -O3 -mavx2 -mfma)
+            target_compile_definitions(${target} PRIVATE CPU_AVX2=1)
+        elseif (SIMD STREQUAL "sse42")
+            target_compile_options(${target} PRIVATE -O3 -msse4.2 -mno-avx)
+            target_compile_definitions(${target} PRIVATE CPU_SSE42=1)
+        elseif (SIMD STREQUAL "scalar")
+            target_compile_definitions(${target} PRIVATE CPU_SCALAR=1)
+        endif()
+    endif()
+endfunction()
+
+# Create a global definition SIMD_BUILD_CHOICE
+add_compile_definitions(SIMD_BUILD_CHOICE="${SIMD}")
+
+
 # 2) C++ settings
 set(CMAKE_CXX_STANDARD       20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,9 +70,6 @@ find_package(OpenBLAS REQUIRED)
 
 
 
-
-
-
 # 1. glob all .cpp under the source directory
 file(GLOB_RECURSE
         ATTENDANCE_SOURCES
@@ -50,26 +80,40 @@ file(GLOB_RECURSE
 # 2. remove any file whose path contains the build dir
 list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "cmake-build-")
 
+function(add_utf8_manifest tgt)
+    if (WIN32)
+        target_sources(${tgt} PRIVATE ${CMAKE_SOURCE_DIR}/cmake/utf8.rc)
+    endif()
+endfunction()
+
 add_executable(attendanceServer
         # ${ATTENDANCE_SOURCES}
         main.cpp
 )
+add_utf8_manifest(attendanceServer)
 
-# tiny demo target
+# add test executables
+# unique erase test demo target
 add_executable(testUniqueErase testUniqueErase.cpp)
+add_utf8_manifest(testUniqueErase)
 
-# zigzag demo target
+# zigzag test demo target
 add_executable(testZigZag testZigZag.cpp)
+add_utf8_manifest(testZigZag)
 
-# zigzag speed test target
+# zigzag speed test demo target
 add_executable(testZigZagSpeed testZigZagSpeed.cpp)
+add_utf8_manifest(testZigZagSpeed)
 
-# server demo target
+# server target
 add_executable(server server.cpp)
+add_utf8_manifest(server)
 
-# poly demo target
+# poly test target
 add_executable(polyTest crypto/polyTest.cpp)
+add_utf8_manifest(polyTest)
 
+# 4. exclude test executables from "all"
 set_target_properties(testUniqueErase PROPERTIES EXCLUDE_FROM_ALL YES)
 
 target_link_libraries(testUniqueErase PRIVATE)
@@ -90,24 +134,17 @@ target_link_libraries(server
 )
 set_target_properties(polyTest PROPERTIES EXCLUDE_FROM_ALL YES)
 
-target_compile_options(
-        polyTest
-        PRIVATE
-        -O3 -mavx2 -mfma
-        #-O3 -msse4.2 -mno-avx -mno-avx
-)
+# Target compile options and definitions for simd
 
-target_compile_options(
-        testZigZag
-        PRIVATE
-        -O3 -mavx2 -mfma
-)
+# Target polyTest
+apply_simd(polyTest)
 
-target_compile_options(
-        testZigZagSpeed
-        PRIVATE
-        -O3 -mavx2 -mfma
-)
+# Target zigzag tests
+apply_simd(testZigZag)
+apply_simd(testZigZagSpeed)
+
+
+
 
 target_link_libraries(attendanceServer
         PRIVATE
