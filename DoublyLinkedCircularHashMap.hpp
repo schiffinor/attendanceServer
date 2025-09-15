@@ -226,8 +226,6 @@ concept Reservable = requires(C c, std::size_t n) { c.reserve(n); };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transparent functors & helpers for heterogeneous lookup
-// Drop this above your container class. Requires: <string>, <string_view>,
-// <type_traits>, <functional>, <cstdint>, <cstddef>, <utility>.
 // ─────────────────────────────────────────────────────────────────────────────
 
 

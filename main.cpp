@@ -9,7 +9,7 @@
 #include <random>
 #include <string>
 #ifdef _WIN32
-    #include <windows.h>
+#include <windows.h>
 #endif
 #include "DOUBLYLINKEDCIRCULARHASHMAP.hpp"
 
@@ -241,10 +241,10 @@ int doublyLinkedCHMTest() {
         using is_transparent = void;
 
         IntSwitchHash() = default;
-        explicit IntSwitchHash(Mode m)
+        explicit IntSwitchHash(const Mode m)
             : mode(m) {}
 
-        std::size_t operator()(int x) const noexcept {
+        std::size_t operator()(const int x) const noexcept {
             if (mode == Mode::AllZero)
                 return 0u;               // pathological hash
             return std::hash<int> {}(x); // normal hash
@@ -965,7 +965,7 @@ int main() {
     // set UTF-8 console on Windows
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);         // if you read from stdin
+    SetConsoleCP(CP_UTF8); // if you read from stdin
 #endif
     // call the tests
     std::cout << "=== Starting tests ===\n";
@@ -984,4 +984,3 @@ int main() {
     std::cout << "Exiting...\n";
     return 0;
 }
-

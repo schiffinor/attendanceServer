@@ -15,7 +15,7 @@ using Poly16 = Poly<16, Q_>;
 #define SIMD_BUILD_CHOICE "unknown"
 #endif
 
-static inline const char* build_simd() {
+static inline const char *build_simd() {
 #if defined(CPU_AVX2)
     return "avx2";
 #elif defined(CPU_SSE42)
@@ -60,8 +60,8 @@ int main() {
 
     const auto poly1 = Poly16<3329ul>(tmp1.begin(), tmp1.end());
     const auto poly2 = Poly16<3329ul>(tmp2.begin(), tmp2.end());
-    auto poly3 = Poly16<3329ul>(0);
-    auto poly4 = Poly16<3329ul>(0);
+    auto poly3       = Poly16<3329ul>(0);
+    auto poly4       = Poly16<3329ul>(0);
     std::cout << "log_2_n: " << 32 - __builtin_clz(3329ul) << "\n";
     // print out BARRETT_MU64
     std::cout << "BARRETT_MU64: " << detail::BARRETT_MU64<3329ul> << "\n";
@@ -114,10 +114,10 @@ int main() {
     }
 
     // test reduce_vec on poly3
-    std::array<std::uint32_t, 16> tmp32{};
+    std::array<std::uint32_t, 16> tmp32 {};
     for (std::size_t i = 0; i < 16; ++i)
         tmp32[i] = static_cast<std::uint32_t>(1) << i; // 1, 2, 4, 8, ..., 32768)
-    std::array<std::uint16_t, 16> reduced{};
+    std::array<std::uint16_t, 16> reduced {};
     kernels::reduce_vec<3329ul, 16>(tmp32.data(), reduced.data());
     std::cout << "\ninitial Poly3 coefficients: ";
     for (const auto &val : tmp32) {
@@ -137,10 +137,10 @@ int main() {
         for (int i = 0; i < 16; ++i)
             for (int j = 0; j < 16; ++j) {
                 constexpr int Q = 3329;
-                const int k    = (i + j) & 15;
-                const int s    = ((i + j) & 16) ? -1 : 1; // sign flip (x^16 = -1)
-                const int prod = s * static_cast<int>(a[i]) * static_cast<int>(b[j]);
-                acc[k]   = (acc[k] + prod) % Q; // true mod, may be negative
+                const int k     = (i + j) & 15;
+                const int s     = ((i + j) & 16) ? -1 : 1; // sign flip (x^16 = -1)
+                const int prod  = s * static_cast<int>(a[i]) * static_cast<int>(b[j]);
+                acc[k]          = (acc[k] + prod) % Q; // true mod, may be negative
                 if (acc[k] < -Q)
                     acc[k] += Q; // keep in (-Q,Q)
             }
@@ -194,20 +194,19 @@ int main() {
     std::cout << "NEG_ADJ_64: " << detail::NEG_ADJ_64<3329ul> << "\n";
 
     // Test reduce_vec_s64
-    constexpr std::array<std::int64_t, 16> testVec = {10000, -10000, 5000, -5000, 2000, -2000, 1000, -1000,
-                                             500, -500, 250, -250, 125, -125, 62, -62};
+    constexpr std::array<std::int64_t, 16> testVec =
+            {10000, -10000, 5000, -5000, 2000, -2000, 1000, -1000, 500, -500, 250, -250, 125, -125, 62, -62};
     // Display the original test vector
     std::cout << "\nOriginal test vector:\n";
     for (const auto &val : testVec) {
         std::cout << val << " ";
     }
-    std::array<std::uint16_t, 16> reducedVec{};
+    std::array<std::uint16_t, 16> reducedVec {};
     kernels::reduce_vec_s64<3329ul, 16>(testVec.data(), reducedVec.data());
     std::cout << "\nReduced vector from reduce_vec_s64:\n";
     for (const auto &val : reducedVec) {
         std::cout << val << " ";
     }
-
 
 
     return 0;
