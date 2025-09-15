@@ -12,13 +12,11 @@
 #include <cpuid.h>
 #include <cstddef>
 #include <cstdint>
+#include <cinttypes>
+#include <cstdio>
 #include <immintrin.h>
 #include <numeric>
 #include <type_traits>
-
-// put these once near your includes
-#include <cinttypes>
-#include <cstdio>
 
 /**
  *
