@@ -9,10 +9,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cinttypes>
 #include <cpuid.h>
 #include <cstddef>
 #include <cstdint>
-#include <cinttypes>
 #include <cstdio>
 #include <immintrin.h>
 #include <numeric>
