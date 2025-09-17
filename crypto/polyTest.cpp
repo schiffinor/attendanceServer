@@ -29,8 +29,7 @@ static inline const char *build_simd() {
 
 int main() {
     // Print out CPU mode
-    const auto cpuLevel = simd::active();
-    if (cpuLevel == simd::Level::AVX2) {
+    if (const auto cpuLevel = simd::active(); cpuLevel == simd::Level::AVX2) {
         std::cout << "Using AVX2 optimized kernels\n";
     } else if (cpuLevel == simd::Level::SSE42) {
         std::cout << "Using SSE4.2 optimized kernels\n";
@@ -202,12 +201,67 @@ int main() {
         std::cout << val << " ";
     }
     std::array<std::uint16_t, 16> reducedVec {};
-    kernels::reduce_vec_s64<3329ul, 16>(testVec.data(), reducedVec.data());
+    kernels::reduce_vec_s64<3329ul, 16, true>(testVec.data(), reducedVec.data());
     std::cout << "\nReduced vector from reduce_vec_s64:\n";
     for (const auto &val : reducedVec) {
         std::cout << val << " ";
     }
 
+    // Test reduce_s32_avx2_dbg
+#if defined(__AVX2__)
+    std::cout << "\nTesting reduce_s32_avx2_dbg:\n";
+    constexpr std::array<std::int32_t, 16> testVec32 =
+            {10000, -10000, 5000, -5000, 2000, -2000, 1000, -1000, 500, -500, 250, -250, 125, -125, 62, -62};
+    std::array<std::uint16_t, 16> reducedVec32 {};
+    simd::kernels::reduce_s32_avx2_dbg<3329ul, 16>(testVec32.data(), reducedVec32.data());
+    std::cout << "\nReduced vector from reduce_s32_avx2_dbg:\n";
+    for (const auto &val : reducedVec32) {
+        std::cout << val << " ";
+    }
+#endif
+
+    // // Test construction from array and span using span constructor uint16_t
+    // std::array<uint16_t, 16> arr16 = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
+    // const Poly16<3329ul> polyFromSpan_16(arr16);
+    // std::cout << "\nPoly constructed from array 16: ";
+    // for (const auto &val : polyFromSpan_16.v) {
+    //     std::cout << val << " ";
+    // }
+    // std::array<int16_t, 16> arr16_2 = {-1, -2, -4, -8, -16, -32, -64, -128, -256, -512, -1024, -2048, -4096, -8192, -16384, -32768};
+    // const Poly16<3329ul> polyFromSpan_16_2(arr16);
+    // std::cout << "\nPoly constructed from array 16: ";
+    // for (const auto &val : polyFromSpan_16_2.v) {
+    //     std::cout << val << " ";
+    // }
+    // // Test construction from array using uint32_t array
+    // std::array<uint32_t, 16> arr32 = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
+    // const Poly16<3329ul> polyFromSpan_32(arr32);
+    // std::cout << "\nPoly constructed from array 32: ";
+    // for (const auto &val : polyFromSpan_32.v) {
+    //     std::cout << val << " ";
+    // }
+    // std::array<int32_t, 16> arr32_2 = {0, -1, -2, -4, -8, -16, -32, -64, -128, -256, -512, -1024, -2048, -4096, -8192, -16384};
+    // const Poly16<3329ul> polyFromSpan_32_2(arr32_2);
+    // std::cout << "\nPoly constructed from array 32: ";
+    // for (const auto &val : polyFromSpan_32_2.v) {
+    //     std::cout << val << " ";
+    // }
+    //
+    // // Test quickSet method and set_zero
+    // std::array<uint16_t, 16> arrSet = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 4000};
+    // Poly16<3329ul> polySetTest;
+    // polySetTest.quick_set(arrSet);
+    // std::cout << "\nPoly after quickSet: ";
+    // for (const auto &val : polySetTest.v) {
+    //     std::cout << val << " ";
+    // }
+    //
+    // polySetTest.set_zero();
+    // std::cout << "\nPoly after set_zero: ";
+    // for (const auto &val : polySetTest.v) {
+    //     std::cout << val << " ";
+    // }
+
 
     return 0;
-};
+}
