@@ -5,8 +5,6 @@
 #ifndef POLY_HPP
 #define POLY_HPP
 
-#pragma once
-
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -20,6 +18,8 @@
 #include <numeric>
 #include <span>
 #include <type_traits>
+
+#include "../simd/cpu.hpp"
 
 /**
  *
@@ -43,46 +43,6 @@ static consteval std::int32_t operator""_bint(const unsigned long long arg) noex
     return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(arg));
 }
 
-enum class Level : std::int32_t { SSE42 = 0, AVX2 = 1 };
-
-static inline std::uint64_t xgetbv(std::uint32_t index = 0) noexcept {
-    std::uint32_t eax, edx;
-    // xgetbv: opcode 0F 01 D0
-    __asm__ volatile(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(index));
-    return (static_cast<std::uint64_t>(edx) << 32) | eax;
-}
-
-inline bool os_avx_enabled() noexcept {
-    std::uint32_t eax, ebx, ecx, edx;
-    if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
-        return false;
-
-    if (const bool osxsave = (ecx & (1u << 27)) != 0; !osxsave)
-        return false;
-
-    const std::uint64_t xcr0 = xgetbv(0);
-    const bool xmm           = (xcr0 & (1ull << 1)) != 0;
-    const bool ymm           = (xcr0 & (1ull << 2)) != 0;
-    return xmm && ymm;
-}
-
-inline Level detect() noexcept {
-    std::uint32_t eax, ebx, ecx, edx;
-
-    // Check that leaf 7 exists
-    if (const std::uint32_t _g_cpu_max = __get_cpuid_max(0, nullptr); !_g_cpu_max || _g_cpu_max < 7)
-        return Level::SSE42;
-
-    __get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx);
-    const bool cpu_has_avx2 = (ebx & (1u << 5)) != 0; // EBX.AVX2
-
-    return (cpu_has_avx2 && os_avx_enabled()) ? Level::AVX2 : Level::SSE42;
-}
-
-inline Level active() noexcept {
-    static const Level level = detect();
-    return level;
-}
 
 template<std::size_t N>
 struct alignas(32) PolyBase {
@@ -707,7 +667,7 @@ namespace kernels {
 
         for (std::size_t i = 0; i < N; i += 32) {
             // 1. Load 16 std::int16_t values as a single 256-bit register
-            const __m256i x_low = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(in + i));
+            const __m256i x_low  = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(in + i));
             const __m256i x_high = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(in + i + 16));
 
             if constexpr (DEBUG) {
@@ -1035,7 +995,7 @@ namespace kernels {
     void reduce_vec(const std::uint16_t *in, std::uint16_t *out) noexcept {
         static_assert(Q < 32768, "16-bit lane Barrett-1 requires 2*Q <= 65535");
 #if defined(__AVX2__)
-        if (active() == Level::AVX2 && (N % 16 == 0)) // stride = 16
+        if (active_level() == Level::AVX2 && (N % 16 == 0)) // stride = 16
         {
             for (std::size_t i = 0; i < N; i += 16) {
                 // load 16×u16 --------------------------------------------------
@@ -1071,7 +1031,7 @@ namespace kernels {
     void reduce_vec(const std::uint32_t *in, std::uint16_t *out) noexcept {
         static_assert(Q < 32768, "16-bit lane Barrett-1 requires 2*Q <= 65535");
 #if defined(__AVX2__)
-        if (active() == Level::AVX2 && (N % 8 == 0)) // stride = 8
+        if (active_level() == Level::AVX2 && (N % 8 == 0)) // stride = 8
         {
             for (std::size_t i = 0; i < N; i += 8) {
                 // load 8×u32 --------------------------------------------------
@@ -1113,7 +1073,7 @@ namespace kernels {
     void reduce_vec_s64(const std::int64_t *in, std::uint16_t *out) noexcept {
         static_assert(Q < 32768, "16-bit lane Barrett-1 requires 2*Q <= 65535");
 #if defined(__AVX2__)
-        if (active() == Level::AVX2 && (N % 8) == 0) {
+        if (active_level() == Level::AVX2 && (N % 8) == 0) {
             kernels::reduce_s64_avx2<Q, N, DEBUG>(in, out);
             return;
         }
@@ -1234,7 +1194,7 @@ public:
 
     static void add(const Poly &a, const Poly &b, Poly &result) noexcept {
         using namespace kernels;
-        if (active() == Level::AVX2) {
+        if (active_level() == Level::AVX2) {
 #if defined(__AVX2__)
             add_mod_avx2<N, Q>(a.v.data(), b.v.data(), result.v.data()); // AVX2 path
 #else
@@ -1244,7 +1204,7 @@ public:
             add_schoolbook(a, b, result); // fallback for non-SSE4.2 or AVX2
 #endif
 #endif
-        } else if (active() == Level::SSE42) {
+        } else if (active_level() == Level::SSE42) {
 #if defined(__SSE4_2__)
             add_mod_sse4_2<N, Q>(a.v.data(), b.v.data(), result.v.data());
 #else

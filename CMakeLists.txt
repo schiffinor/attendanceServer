@@ -89,6 +89,8 @@ endfunction()
 add_executable(attendanceServer
         # ${ATTENDANCE_SOURCES}
         main.cpp
+        simd/cpu.cpp
+        simd/cpu.hpp
 )
 add_utf8_manifest(attendanceServer)
 
@@ -110,7 +112,9 @@ add_executable(server server.cpp)
 add_utf8_manifest(server)
 
 # poly test target
-add_executable(polyTest crypto/polyTest.cpp)
+add_executable(polyTest crypto/polyTest.cpp
+        simd/cpu.cpp
+        simd/cpu.hpp)
 add_utf8_manifest(polyTest)
 
 # 4. exclude test executables from "all"
