@@ -4,9 +4,6 @@
 set(CMAKE_SYSTEM_NAME    Linux)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
-# 2) Point to the WSL gcc/g++
-set(CMAKE_C_COMPILER     /usr/bin/gcc CACHE FILEPATH "C compiler")
-set(CMAKE_CXX_COMPILER   /usr/bin/g++ CACHE FILEPATH "C++ compiler")
 
 # 3) Use native make (or ninja if you change generator)
 # CMake will pick /usr/bin/make by default for "Unix Makefiles"

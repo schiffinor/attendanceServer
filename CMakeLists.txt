@@ -79,6 +79,8 @@ file(GLOB_RECURSE
 
 # 2. remove any file whose path contains the build dir
 list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "cmake-build-")
+list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "cmake")
+list(FILTER ATTENDANCE_SOURCES EXCLUDE REGEX "out")
 
 function(add_utf8_manifest tgt)
     if (WIN32)
@@ -91,6 +93,7 @@ add_executable(attendanceServer
         main.cpp
         simd/cpu.cpp
         simd/cpu.hpp
+        utils/big_int.hpp
 )
 add_utf8_manifest(attendanceServer)
 
@@ -113,9 +116,17 @@ add_utf8_manifest(server)
 
 # poly test target
 add_executable(polyTest crypto/polyTest.cpp
+        crypto/poly.hpp
         simd/cpu.cpp
-        simd/cpu.hpp)
+        simd/cpu.hpp
+        utils/big_int.hpp)
 add_utf8_manifest(polyTest)
+
+# big int test target
+add_executable(bigIntTest utils/big_int_test.cpp
+        utils/big_int.hpp
+        utils/arith_ops.hpp)
+add_utf8_manifest(bigIntTest)
 
 # 4. exclude test executables from "all"
 set_target_properties(testUniqueErase PROPERTIES EXCLUDE_FROM_ALL YES)
@@ -138,6 +149,11 @@ target_link_libraries(server
 )
 set_target_properties(polyTest PROPERTIES EXCLUDE_FROM_ALL YES)
 
+target_link_libraries(polyTest PRIVATE)
+
+set_target_properties(bigIntTest PROPERTIES EXCLUDE_FROM_ALL YES)
+target_link_libraries(bigIntTest PRIVATE)
+
 # Target compile options and definitions for simd
 
 # Target polyTest
@@ -156,3 +172,18 @@ target_link_libraries(attendanceServer
         ${OpenBLAS_LIBRARIES}
         ${PLATFORM_LIBS}
 )
+
+# ---- Documentation ----
+find_package(Doxygen REQUIRED)
+
+set(DOXYFILE ${CMAKE_SOURCE_DIR}/DoxyFile)
+
+add_custom_target(docs
+        COMMAND ${CMAKE_COMMAND} -E rm -rRf ${CMAKE_SOURCE_DIR}/docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYFILE}
+        DEPENDS docs
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating and opening documentation in browser"
+        VERBATIM
+)
+
