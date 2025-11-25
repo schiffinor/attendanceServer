@@ -9,7 +9,6 @@
 #include <array>
 #include <bit>
 #include <cinttypes>
-#include <cpuid.h>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>

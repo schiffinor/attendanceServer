@@ -5,8 +5,9 @@
 #include <cmath>
 #include <iostream>
 
-
 #include "poly.hpp"
+
+
 using namespace simd;
 template<std::uint32_t Q_>
 using Poly16 = Poly<16, Q_>;
@@ -29,7 +30,7 @@ static inline const char *build_simd() {
 
 int main() {
     // Print out CPU mode
-    if (const auto cpuLevel = simd::active(); cpuLevel == simd::Level::AVX2) {
+    if (const auto cpuLevel = simd::active_level(); cpuLevel == simd::Level::AVX2) {
         std::cout << "Using AVX2 optimized kernels\n";
     } else if (cpuLevel == simd::Level::SSE42) {
         std::cout << "Using SSE4.2 optimized kernels\n";
