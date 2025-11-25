@@ -50,26 +50,38 @@ namespace {
             __get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx);
             const bool cpu_avx2    = (ebx & (1u << 5)) != 0;  // EBX.AVX2
             const bool cpu_avx512f = (ebx & (1u << 16)) != 0; // EBX.AVX512F
-            caps.avx2              = cpu_avx2 && caps.os_xmm && caps.os_ymm;
-            caps.avx512f           = cpu_avx512f && caps.os_xmm && caps.os_ymm && caps.os_zmm;
+            const bool cpu_adx     = (ebx & (1u << 19)) != 0; // EBX.ADX
+
+            caps.avx2    = cpu_avx2 && caps.os_xmm && caps.os_ymm;
+            caps.avx512f = cpu_avx512f && caps.os_xmm && caps.os_ymm && caps.os_zmm;
+            caps.adx     = cpu_adx;
         }
 
         return caps;
     }
-
-    // Override for testing at runtime
-    auto forced = static_cast<Level>(-1);
 
     const Caps &cached_caps() noexcept {
         static const Caps caps = [] {
             Caps _caps = detect_caps();
             // Optional override via environment variable SIMDX_FORCE
             if (const char *env = std::getenv("SIMDX_FORCE")) {
-                if (std::strcmp(env, "avx2") == 0) {
+                if (std::strcmp(env, "avx512") == 0) {
+                } else if (std::strcmp(env, "avx2") == 0) {
+                    _caps.avx512f = false;
                 } else if (std::strcmp(env, "sse42") == 0) {
-                    _caps.avx2 = false;
+                    _caps.avx512f = false;
+                    _caps.avx2    = false;
                 } else if (std::strcmp(env, "scalar") == 0 || std::strcmp(env, "none") == 0) {
-                    _caps = {}; // disable all
+                    _caps.avx512f = false;
+                    _caps.avx2    = false;
+                    _caps.sse42   = false;
+                }
+            };
+            if (const char *env = std::getenv("ADX_FORCE")) {
+                if (std::strcmp(env, "1") == 0 || std::strcmp(env, "true") == 0) {
+                    _caps.adx = true;
+                } else if (std::strcmp(env, "0") == 0 || std::strcmp(env, "false") == 0) {
+                    _caps.adx = false;
                 }
             };
             return _caps;
@@ -78,37 +90,62 @@ namespace {
     }
     // Forced override (unset means "no override")
     enum class OptLevel : std::int32_t { Unset = -1 };
-    std::atomic g_forced{static_cast<int32_t>(OptLevel::Unset)};
+    std::atomic g_forced {static_cast<int32_t>(OptLevel::Unset)};
+
+    // Forced ADX override (unset means "no override")
+    std::atomic g_forced_adx {static_cast<int32_t>(OptLevel::Unset)};
 
     // Cached effective level (computed once if not forced)
     std::once_flag g_level_once;
 
+    // Cached effective ADX level (computed once if not forced)
+    std::once_flag g_adx_level_once;
+
     auto g_cached_level = Level::Scalar; // default; will be set on first use
 
-    Level compute_level_from_caps(const Caps& c) noexcept {
-        if (c.avx2)  return Level::AVX2;
-        if (c.sse42) return Level::SSE42;
+    auto g_cached_adx_level = ADX_Level::None; // default; will be set on first use
+
+    Level compute_level_from_caps(const Caps &c) noexcept {
+        if (c.avx2)
+            return Level::AVX2;
+        if (c.sse42)
+            return Level::SSE42;
         return Level::Scalar;
     }
 
-}
+    ADX_Level compute_adx_level_from_caps(const Caps &c) noexcept {
+        if (c.adx)
+            return ADX_Level::ADX;
+        return ADX_Level::None;
+    }
+
+} // namespace
 
 /**
  * @brief Highest usable SIMD level for kernels (based on cpu_caps()).
  *
  * @return
  */
-const Caps &cpu_caps() noexcept { return cached_caps(); }
+const Caps &cpu_caps() noexcept {
+    return cached_caps();
+}
 
 Level active_level() noexcept {
-    const std::int32_t f = g_forced.load(std::memory_order_acquire);
-    if (f != static_cast<std::int32_t>(OptLevel::Unset)) {
+    if (const std::int32_t f = g_forced.load(std::memory_order_acquire);
+        f != static_cast<std::int32_t>(OptLevel::Unset)) {
         return static_cast<Level>(f);
     }
-    std::call_once(g_level_once, [] {
-        g_cached_level = compute_level_from_caps(cached_caps());
-    });
+    std::call_once(g_level_once, [] { g_cached_level = compute_level_from_caps(cached_caps()); });
     return g_cached_level;
+}
+
+ADX_Level active_adx_level() noexcept {
+    if (const std::int32_t f = g_forced_adx.load(std::memory_order_acquire);
+        f != static_cast<std::int32_t>(OptLevel::Unset)) {
+        return static_cast<ADX_Level>(f);
+    }
+    std::call_once(g_adx_level_once, [] { g_cached_adx_level = compute_adx_level_from_caps(cached_caps()); });
+    return g_cached_adx_level;
 }
 
 /**
@@ -118,6 +155,15 @@ Level active_level() noexcept {
  */
 void force_level(Level lvl) noexcept {
     g_forced.store(static_cast<std::int32_t>(lvl), std::memory_order_release);
+}
+
+/**
+ * @brief Test hook to override the detected ADX support (e.g., ADX_FORCE=1)
+ *
+ * @param lvl
+ */
+void force_adx_level(ADX_Level lvl) noexcept {
+    g_forced_adx.store(static_cast<std::int32_t>(lvl), std::memory_order_release);
 }
 
 } // namespace simd
